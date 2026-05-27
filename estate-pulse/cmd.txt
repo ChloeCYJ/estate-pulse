@@ -1,0 +1,22 @@
+
+Windows PowerShell 기준 실행 순서는 이것만 쓰시면 됩니다.
+
+cd D:\CodexProject\estate-pulse
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements.txt
+Copy-Item .env.example .env
+.\.venv\Scripts\python -m streamlit run app.py
+Activate.ps1 없이도 정상 실행됩니다.
+
+만약 가상환경 활성화를 꼭 쓰고 싶으면 현재 PowerShell 창에서만 아래처럼 한 번 허용한 뒤 실행하면 됩니다.
+
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m streamlit run app.py
+앱 실행 후 사용 순서:
+
+Complex Registration에서 단지 등록
+Manual Listing Input에서 매물 등록
+Finance Profile Input에서 자금 프로필 등록
+Analysis Result에서 최근 평균가, 1년 최고가를 넣고 분석 실행
