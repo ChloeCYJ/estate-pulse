@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from modules.utils.date_utils import parse_date_or_today
+from modules.utils.money_utils import format_compact_won, from_eok, to_eok
 
 
 def render_listing_page(*, complex_repository, listing_repository) -> None:
@@ -21,12 +22,21 @@ def render_listing_page(*, complex_repository, listing_repository) -> None:
         with st.form("create_listing_form"):
             complex_label = st.selectbox("단지 선택 *", list(complex_options.keys()))
             area_m2 = st.number_input("전용면적 (m²) *", min_value=0.0, step=1.0, value=84.0)
-            sale_price = st.number_input("매물가 *", min_value=0, step=1000000, value=0)
+            sale_price_eok = st.number_input(
+                "매물가 (억원) *",
+                min_value=0.0,
+                step=0.1,
+                value=0.0,
+                format="%.2f",
+                help="예: 9억이면 9.0, 19억이면 19.0처럼 입력해 주세요.",
+            )
             expected_jeonse_price = st.number_input(
-                "예상 전세가",
-                min_value=0,
-                step=1000000,
-                value=0,
+                "예상 전세가 (억원)",
+                min_value=0.0,
+                step=0.1,
+                value=0.0,
+                format="%.2f",
+                help="모르면 0으로 두어도 됩니다.",
             )
             floor = st.text_input("층")
             direction = st.text_input("향")
@@ -36,6 +46,9 @@ def render_listing_page(*, complex_repository, listing_repository) -> None:
             submitted = st.form_submit_button("매물 저장")
 
         if submitted:
+            sale_price = from_eok(sale_price_eok)
+            expected_jeonse_price_won = from_eok(expected_jeonse_price)
+
             if sale_price <= 0:
                 st.error("매물가는 필수입니다.")
             else:
@@ -43,7 +56,7 @@ def render_listing_page(*, complex_repository, listing_repository) -> None:
                     complex_id=complex_options[complex_label],
                     area_m2=float(area_m2),
                     sale_price=int(sale_price),
-                    expected_jeonse_price=int(expected_jeonse_price),
+                    expected_jeonse_price=int(expected_jeonse_price_won),
                     floor=floor.strip(),
                     direction=direction.strip(),
                     condition_memo=condition_memo.strip(),
@@ -84,9 +97,12 @@ def render_listing_page(*, complex_repository, listing_repository) -> None:
                 "created_at": "등록일시",
             }
         )
+        listing_df["매물가"] = listing_df["매물가"].map(format_compact_won)
+        listing_df["예상 전세가"] = listing_df["예상 전세가"].map(format_compact_won)
         st.dataframe(listing_df, use_container_width=True)
         options = {
-            f"#{item['id']} | {item['complex_name']} | {item['sale_price']:,}": item for item in listings
+            f"#{item['id']} | {item['complex_name']} | {format_compact_won(item['sale_price'])}": item
+            for item in listings
         }
         selected_label = st.selectbox("수정할 매물 선택", list(options.keys()))
         selected = options[selected_label]
@@ -107,17 +123,21 @@ def render_listing_page(*, complex_repository, listing_repository) -> None:
                 step=1.0,
                 value=float(selected["area_m2"]),
             )
-            sale_price = st.number_input(
-                "매물가 *",
-                min_value=0,
-                step=1000000,
-                value=int(selected["sale_price"]),
+            sale_price_eok = st.number_input(
+                "매물가 (억원) *",
+                min_value=0.0,
+                step=0.1,
+                value=to_eok(selected["sale_price"]),
+                format="%.2f",
+                help="예: 9억이면 9.0, 19억이면 19.0처럼 입력해 주세요.",
             )
             expected_jeonse_price = st.number_input(
-                "예상 전세가",
-                min_value=0,
-                step=1000000,
-                value=int(selected["expected_jeonse_price"] or 0),
+                "예상 전세가 (억원)",
+                min_value=0.0,
+                step=0.1,
+                value=to_eok(selected["expected_jeonse_price"] or 0),
+                format="%.2f",
+                help="모르면 0으로 두어도 됩니다.",
             )
             floor = st.text_input("층", value=selected["floor"] or "")
             direction = st.text_input("향", value=selected["direction"] or "")
@@ -132,12 +152,14 @@ def render_listing_page(*, complex_repository, listing_repository) -> None:
             delete_clicked = col_delete.form_submit_button("삭제")
 
         if update_clicked:
+            sale_price = from_eok(sale_price_eok)
+            expected_jeonse_price_won = from_eok(expected_jeonse_price)
             listing_repository.update(
                 selected["id"],
                 complex_id=complex_options[complex_label],
                 area_m2=float(area_m2),
                 sale_price=int(sale_price),
-                expected_jeonse_price=int(expected_jeonse_price),
+                expected_jeonse_price=int(expected_jeonse_price_won),
                 floor=floor.strip(),
                 direction=direction.strip(),
                 condition_memo=condition_memo.strip(),

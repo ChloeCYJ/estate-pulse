@@ -18,9 +18,9 @@ def build_analysis_summary(
         f"단지: {complex_name}\n"
         f"매물가: {format_won(listing['sale_price'])}\n"
         f"예상 전세가: {format_won(expected_jeonse_price)}\n"
-        f"필요 현금: {format_won(required_cash)}\n"
+        f"총 필요 자기자본: {format_won(required_cash)}\n"
         f"보유 현금: {format_won(finance_profile['cash_amount'])}\n"
-        f"부족 현금: {format_won(shortage_cash)}\n"
+        f"추가 필요 현금: {format_won(shortage_cash)}\n"
         f"급매 점수: {bargain_result['score']}점 ({bargain_result['grade']})\n"
         f"판정: {decision}"
     )

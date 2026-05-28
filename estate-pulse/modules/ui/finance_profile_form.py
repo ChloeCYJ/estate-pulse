@@ -3,6 +3,8 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from modules.utils.money_utils import format_compact_won, from_eok, to_eok
+
 
 def render_finance_profile_page(finance_repository) -> None:
     st.title("자금 프로필")
@@ -12,12 +14,28 @@ def render_finance_profile_page(finance_repository) -> None:
 
     with create_tab:
         with st.form("create_finance_profile_form"):
-            cash_amount = st.number_input("보유 현금 *", min_value=0, step=1000000, value=0)
-            existing_debt = st.number_input("기존 대출", min_value=0, step=1000000, value=0)
+            cash_amount_eok = st.number_input(
+                "보유 현금 (억원) *",
+                min_value=0.0,
+                step=0.1,
+                value=0.0,
+                format="%.2f",
+                help="예: 2억이면 2.0, 8억 5천이면 8.5처럼 입력해 주세요.",
+            )
+            existing_debt_eok = st.number_input(
+                "기존 대출 (억원)",
+                min_value=0.0,
+                step=0.1,
+                value=0.0,
+                format="%.2f",
+                help="없으면 0으로 두면 됩니다.",
+            )
             ltv_limit = st.number_input("예상 LTV 한도", min_value=0.0, max_value=1.0, step=0.05, value=0.6)
             submitted = st.form_submit_button("프로필 저장")
 
         if submitted:
+            cash_amount = from_eok(cash_amount_eok)
+            existing_debt = from_eok(existing_debt_eok)
             if cash_amount <= 0:
                 st.error("보유 현금은 필수입니다.")
             else:
@@ -49,25 +67,32 @@ def render_finance_profile_page(finance_repository) -> None:
                 "created_at": "등록일시",
             }
         )
+        profile_df["보유 현금"] = profile_df["보유 현금"].map(format_compact_won)
+        profile_df["기존 대출"] = profile_df["기존 대출"].map(format_compact_won)
         st.dataframe(profile_df, use_container_width=True)
         options = {
-            f"#{item['id']} | 보유 현금 {item['cash_amount']:,}원": item for item in profiles
+            f"#{item['id']} | 보유 현금 {format_compact_won(item['cash_amount'])}": item
+            for item in profiles
         }
         selected_label = st.selectbox("수정할 프로필 선택", list(options.keys()))
         selected = options[selected_label]
 
         with st.form("update_finance_profile_form"):
-            cash_amount = st.number_input(
-                "보유 현금 *",
-                min_value=0,
-                step=1000000,
-                value=int(selected["cash_amount"]),
+            cash_amount_eok = st.number_input(
+                "보유 현금 (억원) *",
+                min_value=0.0,
+                step=0.1,
+                value=to_eok(selected["cash_amount"]),
+                format="%.2f",
+                help="예: 2억이면 2.0, 8억 5천이면 8.5처럼 입력해 주세요.",
             )
-            existing_debt = st.number_input(
-                "기존 대출",
-                min_value=0,
-                step=1000000,
-                value=int(selected["existing_debt"] or 0),
+            existing_debt_eok = st.number_input(
+                "기존 대출 (억원)",
+                min_value=0.0,
+                step=0.1,
+                value=to_eok(selected["existing_debt"] or 0),
+                format="%.2f",
+                help="없으면 0으로 두면 됩니다.",
             )
             ltv_limit = st.number_input(
                 "예상 LTV 한도",
@@ -81,6 +106,8 @@ def render_finance_profile_page(finance_repository) -> None:
             delete_clicked = col_delete.form_submit_button("삭제")
 
         if update_clicked:
+            cash_amount = from_eok(cash_amount_eok)
+            existing_debt = from_eok(existing_debt_eok)
             finance_repository.update(
                 selected["id"],
                 cash_amount=int(cash_amount),
