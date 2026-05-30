@@ -6,11 +6,13 @@ from datetime import date
 from config.settings import AppSettings
 from modules.analyzers.bargain_analyzer import calculate_bargain_score
 from modules.analyzers.cash_flow_analyzer import (
+    calculate_acquisition_cost_total,
     calculate_jeonse_ratio,
-    calculate_required_cash,
     calculate_shortage_cash,
 )
-from modules.analyzers.loan_analyzer import estimate_loan_amount
+from modules.analyzers.investment_analyzer import calculate_investment_metrics
+from modules.analyzers.loan_analyzer import calculate_loan_terms
+from modules.analyzers.owner_occupied_analyzer import calculate_owner_occupied_metrics
 from modules.analyzers.risk_analyzer import summarize_risk
 from modules.analyzers.tax_analyzer import (
     calculate_acquisition_tax,
@@ -32,15 +34,22 @@ from modules.repositories.rent_transaction_repository import RentTransactionRepo
 from modules.repositories.sale_transaction_repository import SaleTransactionRepository
 from modules.services.report_service import build_analysis_summary
 
+OWNER_OCCUPIED = "OWNER_OCCUPIED"
+
 
 @dataclass
 class BenchmarkInputs:
     repair_cost: int = 0
     expected_loan_amount: int | None = None
+    ltv_rate_override: float | None = None
     recent_avg_price_override: int | None = None
     one_year_high_price_override: int | None = None
     expected_jeonse_price_override: int | None = None
+    analysis_mode: str | None = None
     reference_date: date | None = None
+    region_type: str = "NON_REGULATED"
+    buyer_type: str = "NO_HOME"
+    purpose: str = "INVESTMENT"
 
 
 class AnalysisService:
@@ -77,16 +86,30 @@ class AnalysisService:
         if not finance_profile:
             raise ValueError("자금 프로필을 찾을 수 없습니다.")
 
+        stored_investment_type = (
+            listing.get("effective_investment_type") or listing.get("investment_type") or OWNER_OCCUPIED
+        )
+        primary_user_mode = benchmarks.analysis_mode or _to_primary_user_mode(stored_investment_type)
+        investment_type = _resolve_analysis_investment_type(
+            stored_investment_type=stored_investment_type,
+            primary_user_mode=primary_user_mode,
+        )
         market_context = self.get_transaction_context(
             listing_id=listing_id,
             benchmarks=benchmarks,
             reference_date=benchmarks.reference_date,
         )
 
-        ltv_limit = finance_profile["ltv_limit"] or self.settings.default_ltv_limit
-        expected_loan_amount = benchmarks.expected_loan_amount
-        if expected_loan_amount is None:
-            expected_loan_amount = estimate_loan_amount(listing["sale_price"], ltv_limit)
+        loan_terms = calculate_loan_terms(
+            sale_price=listing["sale_price"],
+            region_type=benchmarks.region_type,
+            buyer_type=benchmarks.buyer_type,
+            purpose=OWNER_OCCUPIED if primary_user_mode == OWNER_OCCUPIED else benchmarks.purpose,
+            reference_date=benchmarks.reference_date,
+            ltv_rate_override=benchmarks.ltv_rate_override,
+            final_loan_amount_override=benchmarks.expected_loan_amount,
+        )
+        expected_loan_amount = int(loan_terms["final_loan_amount"])
 
         acquisition_tax = calculate_acquisition_tax(
             listing["sale_price"], self.settings.acquisition_tax_rate
@@ -97,18 +120,49 @@ class AnalysisService:
         contingency_fee = calculate_contingency_fee(
             listing["sale_price"], self.settings.contingency_rate
         )
-
-        required_cash = calculate_required_cash(
-            sale_price=listing["sale_price"],
-            expected_loan_amount=expected_loan_amount,
-            expected_jeonse_price=market_context["derived_inputs"]["expected_jeonse_price"],
+        acquisition_cost_total = calculate_acquisition_cost_total(
             acquisition_tax=acquisition_tax,
             brokerage_fee=brokerage_fee,
             legal_fee=self.settings.legal_fee_fixed,
             repair_cost=benchmarks.repair_cost,
             contingency_fee=contingency_fee,
         )
-        shortage_cash = calculate_shortage_cash(required_cash, finance_profile["cash_amount"])
+
+        if primary_user_mode == OWNER_OCCUPIED:
+            mode_metrics = calculate_owner_occupied_metrics(
+                sale_price=listing["sale_price"],
+                estimated_loan=expected_loan_amount,
+                acquisition_cost_total=acquisition_cost_total,
+                cash_amount=finance_profile["cash_amount"],
+                annual_income=finance_profile.get("annual_income"),
+                annual_interest_rate=finance_profile.get("interest_rate"),
+            )
+            required_cash = int(mode_metrics["required_cash"])
+            shortage_cash = int(mode_metrics["shortage_cash"])
+            current_required_cash = required_cash
+            future_required_cash = None
+            monthly_cash_flow = None
+            gap_amount = None
+            estimated_investment_efficiency = None
+        else:
+            mode_metrics = calculate_investment_metrics(
+                investment_type=investment_type,
+                sale_price=listing["sale_price"],
+                estimated_loan=expected_loan_amount,
+                acquisition_cost_total=acquisition_cost_total,
+                expected_jeonse_price=market_context["derived_inputs"]["expected_jeonse_price"],
+                takeover_jeonse_deposit=int(listing.get("takeover_jeonse_deposit") or 0),
+                rent_deposit=int(listing.get("rent_deposit") or 0),
+                expected_monthly_rent=int(listing.get("expected_monthly_rent") or 0),
+            )
+            required_cash = int(mode_metrics["required_cash"])
+            shortage_cash = calculate_shortage_cash(required_cash, finance_profile["cash_amount"])
+            current_required_cash = mode_metrics["current_required_cash"]
+            future_required_cash = mode_metrics["future_required_cash"]
+            monthly_cash_flow = mode_metrics["monthly_cash_flow"]
+            gap_amount = mode_metrics["gap_amount"]
+            estimated_investment_efficiency = mode_metrics["estimated_investment_efficiency"]
+
         jeonse_ratio = calculate_jeonse_ratio(
             market_context["derived_inputs"]["expected_jeonse_price"],
             listing["sale_price"],
@@ -121,9 +175,13 @@ class AnalysisService:
             required_cash=required_cash,
             user_cash=finance_profile["cash_amount"],
         )
-        risks = summarize_risk(shortage_cash=shortage_cash, jeonse_ratio=jeonse_ratio)
-        decision = "현재 보유 현금으로 투자 가능" if shortage_cash <= 0 else "추가 현금이 필요합니다"
+        risks = summarize_risk(
+            shortage_cash=shortage_cash,
+            jeonse_ratio=jeonse_ratio if primary_user_mode != OWNER_OCCUPIED else 0.0,
+        )
+        decision = _build_decision(primary_user_mode=primary_user_mode, shortage_cash=shortage_cash)
         summary = build_analysis_summary(
+            primary_user_mode=primary_user_mode,
             complex_name=listing["complex_name"],
             listing=listing,
             finance_profile=finance_profile,
@@ -132,25 +190,52 @@ class AnalysisService:
             shortage_cash=shortage_cash,
             bargain_result=bargain_result,
             decision=decision,
+            monthly_repayment=mode_metrics.get("monthly_repayment"),
+            dsr=mode_metrics.get("dsr"),
+            remaining_cash_after_purchase=mode_metrics.get("remaining_cash_after_purchase"),
+            gap_amount=gap_amount,
+            estimated_investment_efficiency=estimated_investment_efficiency,
+            jeonse_ratio=jeonse_ratio,
         )
 
         result = {
             "listing_id": listing_id,
+            "investment_type": investment_type,
+            "primary_user_mode": primary_user_mode,
             "complex_name": listing["complex_name"],
             "sale_price": listing["sale_price"],
             "expected_jeonse_price": market_context["derived_inputs"]["expected_jeonse_price"],
             "expected_loan_amount": expected_loan_amount,
+            "loan_rule_version": loan_terms["rule_version"],
+            "loan_terms": loan_terms,
             "required_cash": required_cash,
             "shortage_cash": shortage_cash,
+            "current_required_cash": current_required_cash,
+            "future_required_cash": future_required_cash,
+            "monthly_cash_flow": monthly_cash_flow,
+            "monthly_repayment": mode_metrics.get("monthly_repayment"),
+            "dsr": mode_metrics.get("dsr"),
+            "remaining_cash_after_purchase": mode_metrics.get("remaining_cash_after_purchase"),
+            "gap_amount": gap_amount,
+            "estimated_investment_efficiency": estimated_investment_efficiency,
             "jeonse_ratio": jeonse_ratio,
             "discount_vs_recent_avg": bargain_result["discount_rate"],
+            "recent_avg_change_rate": -bargain_result["discount_rate"],
             "drop_from_high": bargain_result["drop_from_high"],
+            "high_price_change_rate": -bargain_result["drop_from_high"],
             "bargain_score": bargain_result["score"],
             "bargain_grade": bargain_result["grade"],
             "reasons": bargain_result["reasons"],
             "risks": risks,
             "decision": decision,
             "summary": summary,
+            "scenario_explanation": mode_metrics["scenario_explanation"],
+            "scenario_inputs": {
+                "expected_jeonse_price": market_context["derived_inputs"]["expected_jeonse_price"],
+                "takeover_jeonse_deposit": int(listing.get("takeover_jeonse_deposit") or 0),
+                "rent_deposit": int(listing.get("rent_deposit") or 0),
+                "expected_monthly_rent": int(listing.get("expected_monthly_rent") or 0),
+            },
             "costs": {
                 "acquisition_tax": acquisition_tax,
                 "brokerage_fee": brokerage_fee,
@@ -169,12 +254,17 @@ class AnalysisService:
             analysis_id = self.analysis_repository.create(
                 {
                     "listing_id": listing_id,
+                    "investment_type": investment_type,
                     "required_cash": required_cash,
                     "shortage_cash": shortage_cash,
+                    "current_required_cash": current_required_cash,
+                    "future_required_cash": future_required_cash,
+                    "monthly_cash_flow": monthly_cash_flow,
                     "jeonse_ratio": jeonse_ratio,
                     "discount_vs_recent_avg": bargain_result["discount_rate"],
                     "drop_from_high": bargain_result["drop_from_high"],
                     "bargain_score": bargain_result["score"],
+                    "loan_rule_version": loan_terms["rule_version"],
                     "decision": decision,
                     "summary": summary,
                 }
@@ -301,3 +391,33 @@ class AnalysisService:
         if latest_rent_deposit_avg:
             return latest_rent_deposit_avg, "자동 계산 · 최근 전세 거래 평균"
         return 0, "데이터 없음"
+
+
+def _to_primary_user_mode(investment_type: str) -> str:
+    return OWNER_OCCUPIED if investment_type == OWNER_OCCUPIED else "INVESTMENT"
+
+
+def _resolve_analysis_investment_type(
+    *,
+    stored_investment_type: str,
+    primary_user_mode: str,
+) -> str:
+    if primary_user_mode == OWNER_OCCUPIED:
+        return OWNER_OCCUPIED
+    if stored_investment_type == OWNER_OCCUPIED:
+        return "GAP_INVESTMENT"
+    return stored_investment_type
+
+
+def _build_decision(*, primary_user_mode: str, shortage_cash: int) -> str:
+    if primary_user_mode == OWNER_OCCUPIED:
+        return (
+            "현재 자금으로 실거주 매수가 가능합니다."
+            if shortage_cash <= 0
+            else "실거주 매수 전 추가 자금이 필요합니다."
+        )
+    return (
+        "현재 자금으로 투자 검토가 가능합니다."
+        if shortage_cash <= 0
+        else "추가 자금 없이는 투자 진행이 어렵습니다."
+    )

@@ -6,6 +6,13 @@ import streamlit as st
 from modules.utils.date_utils import parse_date_or_today
 from modules.utils.money_utils import format_compact_won, from_eok, to_eok
 
+PRIMARY_MODE_LABELS = {
+    "OWNER_OCCUPIED": "실거주",
+    "INVESTMENT": "투자",
+}
+
+ADVANCED_INVESTMENT_TYPES = {"JEONSE_TAKEOVER", "MONTHLY_RENT"}
+
 
 def render_listing_page(*, complex_repository, listing_repository) -> None:
     st.title("매물 입력")
@@ -21,25 +28,23 @@ def render_listing_page(*, complex_repository, listing_repository) -> None:
     with create_tab:
         with st.form("create_listing_form"):
             complex_label = st.selectbox("단지 선택 *", list(complex_options.keys()))
+            primary_mode = st.selectbox(
+                "사용 목적 *",
+                list(PRIMARY_MODE_LABELS.keys()),
+                format_func=lambda value: PRIMARY_MODE_LABELS[value],
+            )
             area_m2 = st.number_input("전용면적 (m²) *", min_value=0.0, step=1.0, value=84.0)
             sale_price_eok = st.number_input(
-                "매물가 (억원) *",
+                "매매가 (억원) *",
                 min_value=0.0,
                 step=0.1,
                 value=0.0,
                 format="%.2f",
-                help="예: 9억이면 9.0, 19억이면 19.0처럼 입력해 주세요.",
+                help="예: 9억은 9.0, 19억은 19.0처럼 입력합니다.",
             )
-            expected_jeonse_price = st.number_input(
-                "예상 전세가 (억원)",
-                min_value=0.0,
-                step=0.1,
-                value=0.0,
-                format="%.2f",
-                help="모르면 0으로 두어도 됩니다.",
-            )
+            expected_jeonse_price_eok = _render_primary_mode_inputs(primary_mode=primary_mode)
             floor = st.text_input("층")
-            direction = st.text_input("향")
+            direction = st.text_input("방향")
             condition_memo = st.text_area("상태 메모")
             source_memo = st.text_area("출처 메모")
             checked_at = st.date_input("확인일")
@@ -47,16 +52,18 @@ def render_listing_page(*, complex_repository, listing_repository) -> None:
 
         if submitted:
             sale_price = from_eok(sale_price_eok)
-            expected_jeonse_price_won = from_eok(expected_jeonse_price)
-
             if sale_price <= 0:
-                st.error("매물가는 필수입니다.")
+                st.error("매매가는 필수입니다.")
             else:
                 listing_repository.create(
                     complex_id=complex_options[complex_label],
                     area_m2=float(area_m2),
                     sale_price=int(sale_price),
-                    expected_jeonse_price=int(expected_jeonse_price_won),
+                    expected_jeonse_price=int(from_eok(expected_jeonse_price_eok)),
+                    investment_type=_resolve_internal_investment_type(primary_mode=primary_mode),
+                    takeover_jeonse_deposit=0,
+                    rent_deposit=0,
+                    expected_monthly_rent=0,
                     floor=floor.strip(),
                     direction=direction.strip(),
                     condition_memo=condition_memo.strip(),
@@ -76,6 +83,7 @@ def render_listing_page(*, complex_repository, listing_repository) -> None:
             [
                 "id",
                 "complex_name",
+                "effective_investment_type",
                 "area_m2",
                 "sale_price",
                 "expected_jeonse_price",
@@ -88,18 +96,23 @@ def render_listing_page(*, complex_repository, listing_repository) -> None:
             columns={
                 "id": "ID",
                 "complex_name": "단지명",
+                "effective_investment_type": "사용 목적",
                 "area_m2": "전용면적(m²)",
-                "sale_price": "매물가",
+                "sale_price": "매매가",
                 "expected_jeonse_price": "예상 전세가",
                 "floor": "층",
-                "direction": "향",
+                "direction": "방향",
                 "checked_at": "확인일",
                 "created_at": "등록일시",
             }
         )
-        listing_df["매물가"] = listing_df["매물가"].map(format_compact_won)
+        listing_df["사용 목적"] = listing_df["사용 목적"].map(
+            lambda value: PRIMARY_MODE_LABELS[_to_primary_mode(value)]
+        )
+        listing_df["매매가"] = listing_df["매매가"].map(format_compact_won)
         listing_df["예상 전세가"] = listing_df["예상 전세가"].map(format_compact_won)
         st.dataframe(listing_df, use_container_width=True)
+
         options = {
             f"#{item['id']} | {item['complex_name']} | {format_compact_won(item['sale_price'])}": item
             for item in listings
@@ -117,6 +130,14 @@ def render_listing_page(*, complex_repository, listing_repository) -> None:
                 list(complex_options.keys()),
                 index=list(complex_options.keys()).index(matching_complex_label),
             )
+            primary_mode = st.selectbox(
+                "사용 목적 *",
+                list(PRIMARY_MODE_LABELS.keys()),
+                index=list(PRIMARY_MODE_LABELS.keys()).index(
+                    _to_primary_mode(selected.get("effective_investment_type") or "OWNER_OCCUPIED")
+                ),
+                format_func=lambda value: PRIMARY_MODE_LABELS[value],
+            )
             area_m2 = st.number_input(
                 "전용면적 (m²) *",
                 min_value=0.0,
@@ -124,42 +145,47 @@ def render_listing_page(*, complex_repository, listing_repository) -> None:
                 value=float(selected["area_m2"]),
             )
             sale_price_eok = st.number_input(
-                "매물가 (억원) *",
+                "매매가 (억원) *",
                 min_value=0.0,
                 step=0.1,
                 value=to_eok(selected["sale_price"]),
                 format="%.2f",
-                help="예: 9억이면 9.0, 19억이면 19.0처럼 입력해 주세요.",
+                help="예: 9억은 9.0, 19억은 19.0처럼 입력합니다.",
             )
-            expected_jeonse_price = st.number_input(
-                "예상 전세가 (억원)",
-                min_value=0.0,
-                step=0.1,
-                value=to_eok(selected["expected_jeonse_price"] or 0),
-                format="%.2f",
-                help="모르면 0으로 두어도 됩니다.",
+            expected_jeonse_price_eok = _render_primary_mode_inputs(
+                primary_mode=primary_mode,
+                expected_jeonse_price=to_eok(selected.get("expected_jeonse_price") or 0),
             )
             floor = st.text_input("층", value=selected["floor"] or "")
-            direction = st.text_input("향", value=selected["direction"] or "")
+            direction = st.text_input("방향", value=selected["direction"] or "")
             condition_memo = st.text_area("상태 메모", value=selected["condition_memo"] or "")
             source_memo = st.text_area("출처 메모", value=selected["source_memo"] or "")
-            checked_at = st.date_input(
-                "확인일",
-                value=parse_date_or_today(selected["checked_at"]),
-            )
+            checked_at = st.date_input("확인일", value=parse_date_or_today(selected["checked_at"]))
             col_update, col_delete = st.columns(2)
             update_clicked = col_update.form_submit_button("수정")
             delete_clicked = col_delete.form_submit_button("삭제")
 
         if update_clicked:
-            sale_price = from_eok(sale_price_eok)
-            expected_jeonse_price_won = from_eok(expected_jeonse_price)
+            internal_investment_type = _resolve_internal_investment_type(
+                primary_mode=primary_mode,
+                existing_internal_type=selected.get("effective_investment_type"),
+            )
             listing_repository.update(
                 selected["id"],
                 complex_id=complex_options[complex_label],
                 area_m2=float(area_m2),
-                sale_price=int(sale_price),
-                expected_jeonse_price=int(expected_jeonse_price_won),
+                sale_price=int(from_eok(sale_price_eok)),
+                expected_jeonse_price=int(from_eok(expected_jeonse_price_eok)),
+                investment_type=internal_investment_type,
+                takeover_jeonse_deposit=int(selected.get("takeover_jeonse_deposit") or 0)
+                if internal_investment_type in ADVANCED_INVESTMENT_TYPES
+                else 0,
+                rent_deposit=int(selected.get("rent_deposit") or 0)
+                if internal_investment_type == "MONTHLY_RENT"
+                else 0,
+                expected_monthly_rent=int(selected.get("expected_monthly_rent") or 0)
+                if internal_investment_type == "MONTHLY_RENT"
+                else 0,
                 floor=floor.strip(),
                 direction=direction.strip(),
                 condition_memo=condition_memo.strip(),
@@ -173,3 +199,38 @@ def render_listing_page(*, complex_repository, listing_repository) -> None:
             listing_repository.delete(selected["id"])
             st.warning("매물을 삭제했습니다.")
             st.rerun()
+
+
+def _render_primary_mode_inputs(
+    *,
+    primary_mode: str,
+    expected_jeonse_price: float = 0.0,
+) -> float:
+    if primary_mode == "OWNER_OCCUPIED":
+        st.caption("실거주는 전세 보증금을 차감하지 않고 분석합니다.")
+        return 0.0
+
+    return st.number_input(
+        "예상 전세가 (억원)",
+        min_value=0.0,
+        step=0.1,
+        value=expected_jeonse_price,
+        format="%.2f",
+        help="투자 모드에서는 우선 갭투자 기준으로 분석합니다.",
+    )
+
+
+def _resolve_internal_investment_type(
+    *,
+    primary_mode: str,
+    existing_internal_type: str | None = None,
+) -> str:
+    if primary_mode == "OWNER_OCCUPIED":
+        return "OWNER_OCCUPIED"
+    if existing_internal_type in ADVANCED_INVESTMENT_TYPES:
+        return existing_internal_type
+    return "GAP_INVESTMENT"
+
+
+def _to_primary_mode(investment_type: str | None) -> str:
+    return "OWNER_OCCUPIED" if investment_type == "OWNER_OCCUPIED" else "INVESTMENT"

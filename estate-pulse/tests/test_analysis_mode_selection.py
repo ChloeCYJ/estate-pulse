@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from datetime import date
 import unittest
 
 from config.settings import AppSettings
@@ -17,7 +17,7 @@ from modules.services.analysis_service import AnalysisService, BenchmarkInputs
 from modules.utils.date_utils import utc_now_iso
 
 
-class Phase2AnalysisServiceTests(unittest.TestCase):
+class AnalysisModeSelectionTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = TemporaryDirectory()
         self.database_path = Path(self.temp_dir.name) / "test.db"
@@ -61,23 +61,35 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
             lng=None,
             memo=None,
         )
-        self.listing_id = self.listing_repository.create(
+        self.owner_listing_id = self.listing_repository.create(
             complex_id=self.complex_id,
             area_m2=84.9,
             sale_price=900_000_000,
             expected_jeonse_price=0,
+            investment_type="OWNER_OCCUPIED",
+            floor="10",
+            direction="남향",
+            condition_memo="",
+            source_memo="",
+            checked_at="2026-05-30",
+        )
+        self.gap_listing_id = self.listing_repository.create(
+            complex_id=self.complex_id,
+            area_m2=84.9,
+            sale_price=900_000_000,
+            expected_jeonse_price=520_000_000,
             investment_type="GAP_INVESTMENT",
             floor="10",
             direction="남향",
             condition_memo="",
             source_memo="",
-            checked_at="2026-05-27",
+            checked_at="2026-05-30",
         )
         self.profile_id = self.finance_repository.create(
-            cash_amount=250_000_000,
-            annual_income=None,
+            cash_amount=300_000_000,
+            annual_income=120_000_000,
             existing_debt=0,
-            interest_rate=None,
+            interest_rate=0.04,
             ltv_limit=0.6,
             dsr_limit=None,
         )
@@ -102,30 +114,38 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
-    def test_bargain_score_uses_transaction_derived_values(self) -> None:
+    def test_owner_listing_can_be_analyzed_with_investment_view(self) -> None:
         result = self.analysis_service.run_analysis(
-            listing_id=self.listing_id,
+            listing_id=self.owner_listing_id,
             finance_profile_id=self.profile_id,
-            benchmarks=BenchmarkInputs(reference_date=date(2026, 5, 27)),
+            benchmarks=BenchmarkInputs(
+                reference_date=date(2026, 5, 30),
+                analysis_mode="INVESTMENT",
+            ),
             save_result=False,
         )
 
-        self.assertEqual(result["market_metrics"]["sale_avg_6m"], 980_000_000)
-        self.assertEqual(result["derived_inputs"]["one_year_high_price"], 1_010_000_000)
-        self.assertEqual(result["bargain_score"], 55)
-        self.assertEqual(result["sources"]["recent_avg_price"], "자동 계산 · 최근 6개월 평균")
-
-    def test_jeonse_ratio_fallback_uses_rent_transactions(self) -> None:
-        result = self.analysis_service.run_analysis(
-            listing_id=self.listing_id,
-            finance_profile_id=self.profile_id,
-            benchmarks=BenchmarkInputs(reference_date=date(2026, 5, 27)),
-            save_result=False,
-        )
-
-        self.assertEqual(result["expected_jeonse_price"], 540_000_000)
-        self.assertEqual(result["sources"]["expected_jeonse_price"], "자동 계산 · 최근 전세 거래 평균")
+        self.assertEqual(result["primary_user_mode"], "INVESTMENT")
+        self.assertEqual(result["investment_type"], "GAP_INVESTMENT")
+        self.assertEqual(result["gap_amount"], 360_000_000)
         self.assertAlmostEqual(result["jeonse_ratio"], 60.0)
+
+    def test_gap_listing_can_be_analyzed_with_owner_view(self) -> None:
+        result = self.analysis_service.run_analysis(
+            listing_id=self.gap_listing_id,
+            finance_profile_id=self.profile_id,
+            benchmarks=BenchmarkInputs(
+                reference_date=date(2026, 5, 30),
+                analysis_mode="OWNER_OCCUPIED",
+            ),
+            save_result=False,
+        )
+
+        self.assertEqual(result["primary_user_mode"], "OWNER_OCCUPIED")
+        self.assertEqual(result["investment_type"], "OWNER_OCCUPIED")
+        self.assertEqual(result["required_cash"], 288_300_000)
+        self.assertEqual(result["shortage_cash"], -11_700_000)
+        self.assertIsNotNone(result["monthly_repayment"])
 
     def _sale_tx(self, deal_date: str, price: int) -> dict:
         year, month, day = (int(part) for part in deal_date.split("-"))

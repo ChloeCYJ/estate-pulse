@@ -39,6 +39,10 @@ SCHEMA_STATEMENTS = [
         area_m2 REAL NOT NULL,
         sale_price INTEGER NOT NULL,
         expected_jeonse_price INTEGER,
+        investment_type TEXT,
+        takeover_jeonse_deposit INTEGER,
+        rent_deposit INTEGER,
+        expected_monthly_rent INTEGER,
         floor TEXT,
         direction TEXT,
         condition_memo TEXT,
@@ -103,6 +107,11 @@ SCHEMA_STATEMENTS = [
         bargain_score INTEGER,
         undervalue_score INTEGER,
         risk_score INTEGER,
+        investment_type TEXT,
+        current_required_cash INTEGER,
+        future_required_cash INTEGER,
+        monthly_cash_flow INTEGER,
+        loan_rule_version TEXT,
         decision TEXT,
         summary TEXT,
         created_at TEXT NOT NULL,
@@ -126,6 +135,8 @@ def initialize_database(database_path: Path | str) -> None:
     with get_connection(database_path) as connection:
         for statement in SCHEMA_STATEMENTS:
             connection.execute(statement)
+        _ensure_manual_listing_columns(connection)
+        _ensure_analysis_result_columns(connection)
         connection.commit()
 
 
@@ -154,3 +165,33 @@ def fetch_all(database_path: Path | str, query: str, parameters: Sequence[Any] =
     with get_connection(database_path) as connection:
         rows = connection.execute(query, parameters).fetchall()
     return [dict(row) for row in rows]
+
+
+def _ensure_analysis_result_columns(connection: sqlite3.Connection) -> None:
+    existing_columns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(analysis_result)").fetchall()
+    }
+    if "investment_type" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN investment_type TEXT")
+    if "current_required_cash" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN current_required_cash INTEGER")
+    if "future_required_cash" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN future_required_cash INTEGER")
+    if "monthly_cash_flow" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN monthly_cash_flow INTEGER")
+    if "loan_rule_version" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN loan_rule_version TEXT")
+
+
+def _ensure_manual_listing_columns(connection: sqlite3.Connection) -> None:
+    existing_columns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(manual_listing)").fetchall()
+    }
+    if "investment_type" not in existing_columns:
+        connection.execute("ALTER TABLE manual_listing ADD COLUMN investment_type TEXT")
+    if "takeover_jeonse_deposit" not in existing_columns:
+        connection.execute("ALTER TABLE manual_listing ADD COLUMN takeover_jeonse_deposit INTEGER")
+    if "rent_deposit" not in existing_columns:
+        connection.execute("ALTER TABLE manual_listing ADD COLUMN rent_deposit INTEGER")
+    if "expected_monthly_rent" not in existing_columns:
+        connection.execute("ALTER TABLE manual_listing ADD COLUMN expected_monthly_rent INTEGER")

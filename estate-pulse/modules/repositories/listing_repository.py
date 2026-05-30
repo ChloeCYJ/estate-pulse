@@ -17,6 +17,10 @@ class ManualListingRepository:
         area_m2: float,
         sale_price: int,
         expected_jeonse_price: int,
+        investment_type: str | None = None,
+        takeover_jeonse_deposit: int = 0,
+        rent_deposit: int = 0,
+        expected_monthly_rent: int = 0,
         floor: str,
         direction: str,
         condition_memo: str,
@@ -27,16 +31,21 @@ class ManualListingRepository:
             self.database_path,
             """
             INSERT INTO manual_listing (
-                complex_id, area_m2, sale_price, expected_jeonse_price, floor,
+                complex_id, area_m2, sale_price, expected_jeonse_price, investment_type,
+                takeover_jeonse_deposit, rent_deposit, expected_monthly_rent, floor,
                 direction, condition_memo, source_memo, checked_at, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 complex_id,
                 area_m2,
                 sale_price,
                 expected_jeonse_price,
+                investment_type,
+                takeover_jeonse_deposit,
+                rent_deposit,
+                expected_monthly_rent,
                 floor,
                 direction,
                 condition_memo,
@@ -47,7 +56,7 @@ class ManualListingRepository:
         )
 
     def get(self, listing_id: int) -> dict | None:
-        return fetch_one(
+        row = fetch_one(
             self.database_path,
             """
             SELECT ml.*, ac.name AS complex_name
@@ -57,9 +66,10 @@ class ManualListingRepository:
             """,
             (listing_id,),
         )
+        return self._with_effective_investment_type(row)
 
     def list_all(self) -> list[dict]:
-        return fetch_all(
+        rows = fetch_all(
             self.database_path,
             """
             SELECT ml.*, ac.name AS complex_name
@@ -68,9 +78,10 @@ class ManualListingRepository:
             ORDER BY ml.created_at DESC
             """,
         )
+        return [self._with_effective_investment_type(row) for row in rows]
 
     def list_by_complex(self, complex_id: int) -> list[dict]:
-        return fetch_all(
+        rows = fetch_all(
             self.database_path,
             """
             SELECT ml.*, ac.name AS complex_name
@@ -81,6 +92,7 @@ class ManualListingRepository:
             """,
             (complex_id,),
         )
+        return [self._with_effective_investment_type(row) for row in rows]
 
     def update(
         self,
@@ -90,6 +102,10 @@ class ManualListingRepository:
         area_m2: float,
         sale_price: int,
         expected_jeonse_price: int,
+        investment_type: str | None = None,
+        takeover_jeonse_deposit: int = 0,
+        rent_deposit: int = 0,
+        expected_monthly_rent: int = 0,
         floor: str,
         direction: str,
         condition_memo: str,
@@ -105,6 +121,10 @@ class ManualListingRepository:
                 area_m2 = ?,
                 sale_price = ?,
                 expected_jeonse_price = ?,
+                investment_type = ?,
+                takeover_jeonse_deposit = ?,
+                rent_deposit = ?,
+                expected_monthly_rent = ?,
                 floor = ?,
                 direction = ?,
                 condition_memo = ?,
@@ -117,6 +137,10 @@ class ManualListingRepository:
                 area_m2,
                 sale_price,
                 expected_jeonse_price,
+                investment_type,
+                takeover_jeonse_deposit,
+                rent_deposit,
+                expected_monthly_rent,
                 floor,
                 direction,
                 condition_memo,
@@ -132,3 +156,18 @@ class ManualListingRepository:
             "DELETE FROM manual_listing WHERE id = ?",
             (listing_id,),
         )
+
+    def _with_effective_investment_type(self, row: dict | None) -> dict | None:
+        if not row:
+            return row
+
+        effective_investment_type = row.get("investment_type")
+        if not effective_investment_type:
+            expected_jeonse_price = int(row.get("expected_jeonse_price") or 0)
+            effective_investment_type = (
+                "GAP_INVESTMENT" if expected_jeonse_price > 0 else "OWNER_OCCUPIED"
+            )
+
+        updated_row = dict(row)
+        updated_row["effective_investment_type"] = effective_investment_type
+        return updated_row

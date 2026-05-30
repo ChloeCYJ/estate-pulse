@@ -16,30 +16,40 @@ class AnalysisRepository:
             """
             INSERT INTO analysis_result (
                 listing_id,
+                investment_type,
                 required_cash,
                 shortage_cash,
+                current_required_cash,
+                future_required_cash,
+                monthly_cash_flow,
                 jeonse_ratio,
                 discount_vs_recent_avg,
                 drop_from_high,
                 bargain_score,
                 undervalue_score,
                 risk_score,
+                loan_rule_version,
                 decision,
                 summary,
                 created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 payload["listing_id"],
+                payload.get("investment_type"),
                 payload["required_cash"],
                 payload["shortage_cash"],
+                payload.get("current_required_cash"),
+                payload.get("future_required_cash"),
+                payload.get("monthly_cash_flow"),
                 payload["jeonse_ratio"],
                 payload["discount_vs_recent_avg"],
                 payload["drop_from_high"],
                 payload["bargain_score"],
                 payload.get("undervalue_score"),
                 payload.get("risk_score"),
+                payload.get("loan_rule_version"),
                 payload["decision"],
                 payload["summary"],
                 utc_now_iso(),
