@@ -19,15 +19,24 @@ class UserFinanceProfileRepository:
         interest_rate: float | None,
         ltv_limit: float | None,
         dsr_limit: float | None,
+        home_count: int = 0,
+        owned_real_estate_value: int = 0,
+        owned_real_estate_debt: int = 0,
+        credit_loan_balance: int = 0,
+        other_loan_balance: int = 0,
+        use_manual_ltv: bool = False,
+        manual_ltv_rate: float | None = None,
     ) -> int:
         return execute(
             self.database_path,
             """
             INSERT INTO user_finance_profile (
                 cash_amount, annual_income, existing_debt, interest_rate,
-                ltv_limit, dsr_limit, created_at
+                ltv_limit, dsr_limit, home_count, owned_real_estate_value,
+                owned_real_estate_debt, credit_loan_balance, other_loan_balance,
+                use_manual_ltv, manual_ltv_rate, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 cash_amount,
@@ -36,6 +45,13 @@ class UserFinanceProfileRepository:
                 interest_rate,
                 ltv_limit,
                 dsr_limit,
+                home_count,
+                owned_real_estate_value,
+                owned_real_estate_debt,
+                credit_loan_balance,
+                other_loan_balance,
+                1 if use_manual_ltv else 0,
+                manual_ltv_rate,
                 utc_now_iso(),
             ),
         )
@@ -73,6 +89,13 @@ class UserFinanceProfileRepository:
         interest_rate: float | None,
         ltv_limit: float | None,
         dsr_limit: float | None,
+        home_count: int = 0,
+        owned_real_estate_value: int = 0,
+        owned_real_estate_debt: int = 0,
+        credit_loan_balance: int = 0,
+        other_loan_balance: int = 0,
+        use_manual_ltv: bool = False,
+        manual_ltv_rate: float | None = None,
     ) -> None:
         execute(
             self.database_path,
@@ -84,7 +107,14 @@ class UserFinanceProfileRepository:
                 existing_debt = ?,
                 interest_rate = ?,
                 ltv_limit = ?,
-                dsr_limit = ?
+                dsr_limit = ?,
+                home_count = ?,
+                owned_real_estate_value = ?,
+                owned_real_estate_debt = ?,
+                credit_loan_balance = ?,
+                other_loan_balance = ?,
+                use_manual_ltv = ?,
+                manual_ltv_rate = ?
             WHERE id = ?
             """,
             (
@@ -94,6 +124,13 @@ class UserFinanceProfileRepository:
                 interest_rate,
                 ltv_limit,
                 dsr_limit,
+                home_count,
+                owned_real_estate_value,
+                owned_real_estate_debt,
+                credit_loan_balance,
+                other_loan_balance,
+                1 if use_manual_ltv else 0,
+                manual_ltv_rate,
                 profile_id,
             ),
         )

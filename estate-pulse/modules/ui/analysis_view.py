@@ -5,12 +5,21 @@ import plotly.express as px
 import streamlit as st
 
 from config.settings import AppSettings
-from modules.services.analysis_service import AnalysisService, BenchmarkInputs
+from modules.services.analysis_service import (
+    CASH_ONLY,
+    SELL_OWNED_REAL_ESTATE,
+    AnalysisService,
+    BenchmarkInputs,
+)
 from modules.utils.money_utils import format_compact_won, format_won, from_eok, to_eok
 
 PRIMARY_MODE_LABELS = {
     "OWNER_OCCUPIED": "실거주",
     "INVESTMENT": "투자",
+}
+FUNDING_MODE_LABELS = {
+    CASH_ONLY: "보유 현금만 사용",
+    SELL_OWNED_REAL_ESTATE: "보유 부동산 처분 후 매수",
 }
 
 
@@ -65,6 +74,20 @@ def render_analysis_page(
         st.warning(str(exc))
 
     with st.form("analysis_form"):
+        st.subheader("자금 사용 시나리오")
+        funding_mode = st.radio(
+            "매수 자금 기준",
+            list(FUNDING_MODE_LABELS.keys()),
+            index=0,
+            format_func=lambda value: FUNDING_MODE_LABELS[value],
+            help=(
+                "보유 부동산을 팔아 갈아타는 경우에는 처분 후 매수를 선택하세요. "
+                "이 경우 보유 현금 + 보유 부동산 시가 - 보유 부동산 대출 잔액을 기준으로 봅니다."
+            ),
+            horizontal=True,
+        )
+        _render_profile_purchase_power_preview(selected_profile, funding_mode)
+
         st.subheader("시장 입력 보정")
         market_col1, market_col2 = st.columns(2)
         with market_col1:
@@ -91,12 +114,13 @@ def render_analysis_page(
                 format="%.2f",
             )
             ltv_rate_override = st.number_input(
-                "LTV override",
+                "이번 분석 수동 LTV 보정",
                 min_value=0.0,
                 max_value=1.0,
                 step=0.05,
                 value=0.0,
                 format="%.2f",
+                help="비워두면 자금 프로필의 수동 LTV 설정 또는 대출 규칙 엔진의 자동 계산값을 사용합니다.",
             )
             repair_cost_eok = st.number_input(
                 "수리비 (억 원)",
@@ -168,6 +192,7 @@ def render_analysis_page(
                     repair_cost=int(from_eok(repair_cost_eok)),
                     expected_loan_amount=_to_optional_won(expected_loan_amount_eok),
                     ltv_rate_override=_to_optional_float(ltv_rate_override),
+                    funding_mode=funding_mode,
                     recent_avg_price_override=_to_optional_won(recent_avg_price_override_eok),
                     one_year_high_price_override=_to_optional_won(one_year_high_price_override_eok),
                     expected_jeonse_price_override=_to_optional_won(expected_jeonse_price_override_eok),
@@ -235,10 +260,12 @@ def _render_analysis_metrics(result: dict) -> None:
     st.subheader(f"{result['complex_name']} 분석 결과")
     st.info(result["scenario_explanation"])
 
+    _render_decision_highlight(result)
+
     top_cols = st.columns(4)
     top_cols[0].metric("필요 현금", format_compact_won(result["required_cash"]))
-    top_cols[1].metric("부족 현금", format_compact_won(result["shortage_cash"]))
-    top_cols[2].metric("유동성 점수", str(result["liquidity_score"]))
+    top_cols[1].metric("매수 가능 현금", _format_available_cash(result))
+    top_cols[2].metric("예상 대출", format_compact_won(result["expected_loan_amount"]))
     top_cols[3].metric("투자 점수", str(result["investment_score"]))
 
     detail_cols = st.columns(4)
@@ -267,10 +294,13 @@ def _render_analysis_metrics(result: dict) -> None:
             format_compact_won(result["remaining_cash_after_purchase"]),
         )
 
-    st.success(result["decision"])
+    st.caption(f"판정: {result['decision']}")
+    _render_purchase_power_table(result)
     _render_source_table(result)
+    _render_active_region_policy_table(result)
     _render_cost_table(result)
     _render_complex_profile_table(result)
+    _render_policy_event_table(result)
     _render_formula_explainer(result)
     st.text_area("요약", value=result["summary"], height=180, disabled=True)
 
@@ -283,6 +313,91 @@ def _render_analysis_metrics(result: dict) -> None:
         st.write("리스크 체크")
         for risk in result["risks"]:
             st.write(f"- {risk}")
+
+
+def _render_decision_highlight(result: dict) -> None:
+    shortage_cash = int(result["shortage_cash"])
+    required_cash = int(result["required_cash"])
+    available_cash = int(
+        (result.get("purchase_power") or {}).get("available_cash_for_purchase") or 0
+    )
+    if shortage_cash > 0:
+        st.error(
+            f"부족 현금: {format_compact_won(shortage_cash)} 필요. "
+            f"현재 기준 매수 가능 현금 {format_compact_won(available_cash)}으로는 부족합니다."
+        )
+    else:
+        st.success(
+            f"현금 여유: {format_compact_won(abs(shortage_cash))}. "
+            f"필요 현금 {format_compact_won(required_cash)}을 충족합니다."
+        )
+
+
+def _format_available_cash(result: dict) -> str:
+    purchase_power = result.get("purchase_power") or {}
+    return format_compact_won(purchase_power.get("available_cash_for_purchase") or 0)
+
+
+def _render_profile_purchase_power_preview(profile: dict, funding_mode: str) -> None:
+    cash_amount = int(profile.get("cash_amount") or 0)
+    owned_real_estate_value = int(profile.get("owned_real_estate_value") or 0)
+    owned_real_estate_debt = int(profile.get("owned_real_estate_debt") or 0)
+    sale_net_cash = (
+        max(owned_real_estate_value - owned_real_estate_debt, 0)
+        if funding_mode == SELL_OWNED_REAL_ESTATE
+        else 0
+    )
+    available_cash = cash_amount + sale_net_cash
+    if funding_mode == SELL_OWNED_REAL_ESTATE and owned_real_estate_value <= 0:
+        st.warning("보유 부동산 시가가 0원입니다. 자금 프로필에서 처분 대상 부동산 금액을 먼저 입력해 주세요.")
+    st.caption(
+        "매수 가능 현금 기준: "
+        f"{format_compact_won(available_cash)} "
+        f"(보유 현금 {format_compact_won(cash_amount)}"
+        + (
+            f" + 처분 순현금 {format_compact_won(sale_net_cash)})"
+            if funding_mode == SELL_OWNED_REAL_ESTATE
+            else ")"
+        )
+    )
+
+
+def _render_purchase_power_table(result: dict) -> None:
+    purchase_power = result.get("purchase_power") or {}
+    if not purchase_power:
+        return
+    rows = [
+        {
+            "항목": "자금 사용 시나리오",
+            "값": FUNDING_MODE_LABELS.get(result.get("funding_mode"), result.get("funding_mode")),
+        },
+        {
+            "항목": "보유 현금",
+            "값": format_compact_won(purchase_power.get("cash_amount") or 0),
+        },
+        {
+            "항목": "보유 부동산 시가",
+            "값": format_compact_won(purchase_power.get("owned_real_estate_value") or 0),
+        },
+        {
+            "항목": "보유 부동산 대출 잔액",
+            "값": format_compact_won(purchase_power.get("owned_real_estate_debt") or 0),
+        },
+        {
+            "항목": "처분 후 순현금",
+            "값": format_compact_won(purchase_power.get("sale_net_cash") or 0),
+        },
+        {
+            "항목": "매수 가능 현금 기준",
+            "값": format_compact_won(purchase_power.get("available_cash_for_purchase") or 0),
+        },
+        {
+            "항목": "대출 심사 반영 기존 부채",
+            "값": format_compact_won(purchase_power.get("existing_debt_for_loan_screening") or 0),
+        },
+    ]
+    st.write("자금 사용 기준")
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
 def _render_source_table(result: dict) -> None:
@@ -362,6 +477,28 @@ def _render_cost_table(result: dict) -> None:
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
+def _render_active_region_policy_table(result: dict) -> None:
+    st.write("현재 적용 지역 규제")
+    policies = result.get("active_region_policies", [])
+    if not policies:
+        st.caption("현재 분석 대상 지역에 적용 중인 지역 규제가 없습니다.")
+        return
+
+    rows = [
+        {
+            "규제 유형": _region_policy_type_label(str(policy["policy_type"])),
+            "적용 지역": policy.get("region_scope") or _region_scope_label(policy),
+            "지역 레벨": _region_level_label(str(policy["region_level"])),
+            "시작일": policy["effective_from"],
+            "종료일": policy.get("effective_to") or "-",
+            "대출 지역 판정": _loan_region_type_label(policy.get("loan_region_type")),
+            "메모": policy.get("notes") or "-",
+        }
+        for policy in policies
+    ]
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+
 def _render_complex_profile_table(result: dict) -> None:
     profile = result["complex_profile"]
     rows = [
@@ -375,6 +512,32 @@ def _render_complex_profile_table(result: dict) -> None:
         {"항목": "평당가 순위", "값": profile["price_per_area_rank"]},
     ]
     st.write("단지 품질 분석")
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+
+def _render_policy_event_table(result: dict) -> None:
+    st.write("관련 정책 참고")
+    events = result.get("relevant_policy_events", [])
+    if not events:
+        st.caption("현재 분석 조건에 맞는 정책 이벤트가 없습니다.")
+        return
+
+    rows = [
+        {
+            "Title": event["title"],
+            "Summary": event["summary"],
+            "Impact": event["impact_level"],
+            "Effective From": event["effective_from"],
+            "Effective To": event.get("effective_to") or "-",
+            "Mode": (
+                "Calculation-supported reference"
+                if event["reference_mode"] == "CALCULATION_SUPPORTED_REFERENCE"
+                else "Reference only"
+            ),
+            "Source": event.get("source_name") or "-",
+        }
+        for event in events
+    ]
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
@@ -532,6 +695,41 @@ def _format_efficiency(value: float | None) -> str:
     if value is None:
         return "계산 불가"
     return f"{value:.2f}배"
+
+
+def _region_policy_type_label(value: str) -> str:
+    return {
+        "REGULATED_AREA": "규제지역",
+        "NON_REGULATED_AREA": "비규제지역",
+        "LAND_TRANSACTION_PERMISSION": "토지거래허가구역",
+        "SPECULATION_OVERHEATED_DISTRICT": "투기과열지구",
+        "ADJUSTMENT_TARGET_AREA": "조정대상지역",
+    }.get(value, value)
+
+
+def _region_level_label(value: str) -> str:
+    return {
+        "SIDO": "시도",
+        "SIGUNGU": "시군구",
+        "DONG": "동",
+    }.get(value, value)
+
+
+def _loan_region_type_label(value: str | None) -> str:
+    return {
+        "REGULATED": "규제지역",
+        "NON_REGULATED": "비규제지역",
+        None: "-",
+    }.get(value, str(value))
+
+
+def _region_scope_label(policy: dict) -> str:
+    parts = [
+        str(policy.get("sido") or "").strip(),
+        str(policy.get("sigungu") or "").strip(),
+        str(policy.get("dong") or "").strip(),
+    ]
+    return " ".join(part for part in parts if part) or "-"
 
 
 def _complex_grade_label(value: str | None) -> str:

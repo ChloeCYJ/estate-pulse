@@ -5,9 +5,12 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from modules.repositories.database import initialize_database
+from modules.repositories.policy_event_candidate_repository import PolicyEventCandidateRepository
+from modules.repositories.policy_event_repository import PolicyEventRepository
 from modules.repositories.policy_import_repository import PolicyImportRepository
 from modules.repositories.region_policy_repository import RegionPolicyRepository
 from modules.repositories.rule_candidate_repository import RuleCandidateRepository
+from modules.services.policy_event_service import PolicyEventService
 from modules.services.policy_import_service import (
     CANDIDATE_STATUS_APPROVED,
     PolicyImportService,
@@ -23,6 +26,8 @@ class PolicyImportServiceTests(unittest.TestCase):
         initialize_database(self.database_path)
         self.policy_import_repository = PolicyImportRepository(self.database_path)
         self.rule_candidate_repository = RuleCandidateRepository(self.database_path)
+        self.policy_event_repository = PolicyEventRepository(self.database_path)
+        self.policy_event_candidate_repository = PolicyEventCandidateRepository(self.database_path)
         self.region_policy_repository = RegionPolicyRepository(self.database_path)
         self.rule_runtime_service = RuleRuntimeService(
             rule_candidate_repository=self.rule_candidate_repository,
@@ -30,11 +35,16 @@ class PolicyImportServiceTests(unittest.TestCase):
         self.region_policy_service = RegionPolicyService(
             region_policy_repository=self.region_policy_repository,
         )
+        self.policy_event_service = PolicyEventService(
+            policy_event_repository=self.policy_event_repository,
+        )
         self.service = PolicyImportService(
             policy_import_repository=self.policy_import_repository,
             rule_candidate_repository=self.rule_candidate_repository,
+            policy_event_candidate_repository=self.policy_event_candidate_repository,
             rule_runtime_service=self.rule_runtime_service,
             region_policy_service=self.region_policy_service,
+            policy_event_service=self.policy_event_service,
         )
 
     def tearDown(self) -> None:
@@ -279,6 +289,31 @@ class PolicyImportServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "UNKNOWN candidates are review-only"):
             self.service.apply_candidates(candidate_ids=[int(unknown_candidate["id"])])
 
+    def test_non_rule_policy_text_creates_policy_event_candidate(self) -> None:
+        result = self.service.create_policy_import(
+            source_text="다주택자 양도세 중과 유예는 2026년 5월 9일 종료",
+            source_name="Tax guidance",
+            target_rule_type="INTEGRATED",
+            effective_date="2026-05-31",
+            parser_name="mock",
+        )
+
+        self.assertEqual(result["candidate_ids"], [])
+        self.assertEqual(len(result["policy_event_candidate_ids"]), 1)
+
+        detail = self.service.get_policy_import_detail(
+            result["policy_import_id"],
+            include_policy_event_candidates=True,
+        )
+        policy_event_candidate = next(
+            item for item in detail["candidates"] if item["target_rule_type"] == "POLICY_EVENT"
+        )
+        self.assertEqual(policy_event_candidate["proposed_rule"]["policy_type"], "TAX")
+        self.assertEqual(policy_event_candidate["proposed_rule"]["impact_level"], "HIGH")
+        self.assertEqual(policy_event_candidate["proposed_rule"]["effective_from"], "2026-05-09")
+        self.assertEqual(policy_event_candidate["proposed_rule"]["effective_to"], "2026-05-09")
+        self.assertFalse(policy_event_candidate["proposed_rule"]["calculation_supported"])
+
     def test_apply_approved_loan_candidate_updates_active_rules(self) -> None:
         result = self.service.create_policy_import(
             source_text="비규제지역 무주택 실거주자 9억~15억 구간 LTV 55% DSR 40% 최대 7억 적용",
@@ -337,6 +372,31 @@ class PolicyImportServiceTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["policy_type"], "REGULATED_AREA")
         self.assertEqual(rows[0]["sido"], "서울")
+
+    def test_region_policy_import_supports_adjustment_target_area(self) -> None:
+        result = self.service.create_policy_import(
+            source_text="\uc11c\uc6b8 \uc131\ubd81\uad6c\ub294 \uc870\uc815\ub300\uc0c1\uc9c0\uc5ed\uc785\ub2c8\ub2e4.",
+            source_name="\uc9c0\uc5ed \uaddc\uc81c",
+            target_rule_type="REGION_POLICY",
+            effective_date="2026-06-01",
+            parser_name="mock",
+        )
+        candidate_id = int(result["candidate_ids"][0])
+        detail = self.service.get_policy_import_detail(result["policy_import_id"])
+        candidate = detail["candidates"][0]
+
+        self.assertEqual(candidate["proposed_rule"]["policy_type"], "ADJUSTMENT_TARGET_AREA")
+        self.assertEqual(candidate["proposed_rule"]["sido"], "\uc11c\uc6b8")
+        self.assertEqual(candidate["proposed_rule"]["sigungu"], "\uc131\ubd81\uad6c")
+
+        self.service.set_candidate_status(
+            candidate_id=candidate_id,
+            status=CANDIDATE_STATUS_APPROVED,
+        )
+        self.service.apply_candidates(candidate_ids=[candidate_id])
+        rows = self.region_policy_service.list_region_policy_statuses()
+
+        self.assertEqual(rows[0]["policy_type"], "ADJUSTMENT_TARGET_AREA")
 
     def test_validation_detects_overlapping_loan_rule(self) -> None:
         validation = self.service.validate_rule_candidate(

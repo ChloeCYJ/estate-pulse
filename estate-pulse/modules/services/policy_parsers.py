@@ -6,8 +6,22 @@ from datetime import date
 import re
 
 
-IMPORT_TARGET_RULE_TYPES = ("INTEGRATED", "LOAN", "TAX", "BROKERAGE", "REGION_POLICY")
-CANDIDATE_TARGET_RULE_TYPES = ("LOAN", "TAX", "BROKERAGE", "REGION_POLICY", "UNKNOWN")
+IMPORT_TARGET_RULE_TYPES = (
+    "INTEGRATED",
+    "LOAN",
+    "TAX",
+    "BROKERAGE",
+    "REGION_POLICY",
+    "POLICY_EVENT",
+)
+CANDIDATE_TARGET_RULE_TYPES = (
+    "LOAN",
+    "TAX",
+    "BROKERAGE",
+    "REGION_POLICY",
+    "POLICY_EVENT",
+    "UNKNOWN",
+)
 
 
 @dataclass
@@ -158,6 +172,15 @@ class MockPolicyParser(PolicyParser):
                         metadata=section.metadata or {},
                     )
                 )
+            elif section.target_rule_type == "POLICY_EVENT":
+                candidates.extend(
+                    self._parse_policy_event_candidates(
+                        source_text=section.source_text,
+                        effective_date=effective_date,
+                        section_warnings=section.warnings,
+                        confidence=section.confidence,
+                    )
+                )
             else:
                 candidates.append(
                     ParsedRuleCandidate(
@@ -175,6 +198,59 @@ class MockPolicyParser(PolicyParser):
                     )
                 )
         return candidates
+
+    def _parse_policy_event_candidates(
+        self,
+        *,
+        source_text: str,
+        effective_date: str | None,
+        section_warnings: list[str],
+        confidence: float | None,
+    ) -> list[ParsedRuleCandidate]:
+        warnings = list(section_warnings)
+        extracted_dates = _extract_policy_dates(source_text)
+        effective_to = extracted_dates.get("effective_to")
+        effective_from = _resolve_policy_event_effective_from(
+            effective_date=effective_date,
+            extracted_effective_from=extracted_dates.get("effective_from"),
+            extracted_effective_to=effective_to,
+        )
+        region_scope = _extract_region_scope(source_text)
+        title = _build_policy_event_title(source_text)
+
+        proposed_rule = {
+            "policy_type": _infer_policy_event_type(source_text),
+            "title": title,
+            "summary": _build_policy_event_summary(source_text),
+            "detail": source_text,
+            "effective_from": effective_from,
+            "effective_to": effective_to,
+            "affected_region_sido": region_scope.get("sido"),
+            "affected_region_sigungu": region_scope.get("sigungu"),
+            "affected_region_dong": region_scope.get("dong"),
+            "affected_buyer_type": _infer_policy_event_buyer_type(source_text),
+            "affected_investment_purpose": _infer_policy_event_investment_purpose(source_text),
+            "impact_level": _infer_policy_event_impact_level(source_text),
+            "calculation_supported": False,
+            "action_required": _infer_policy_event_action_required(source_text),
+            "source_text": source_text,
+            "source_name": None,
+        }
+        if effective_to and not effective_date and not extracted_dates.get("effective_from"):
+            warnings.append(
+                "Effective start date was inferred from the import date or today because only an end date was found."
+            )
+        return [
+            ParsedRuleCandidate(
+                target_rule_type="POLICY_EVENT",
+                rule_name=title,
+                rule_version=None,
+                previous_rule=None,
+                proposed_rule=proposed_rule,
+                confidence=confidence,
+                warnings=warnings,
+            )
+        ]
 
     def _parse_loan_candidates(
         self,
@@ -495,6 +571,10 @@ def _classify_integrated_chunk(source_text: str) -> tuple[str, float, list[str]]
     normalized = source_text.lower()
     warnings: list[str] = []
 
+    if _is_policy_event_text(source_text):
+        warnings.extend(_section_warnings("POLICY_EVENT", source_text))
+        return "POLICY_EVENT", 0.82, warnings
+
     loan_keywords = ("ltv", "dsr", "대출", "실거주", "무주택")
     tax_keywords = ("취득세", "지방교육세", "tax")
     brokerage_keywords = ("중개", "법무", "예비비", "brokerage", "legal")
@@ -502,6 +582,8 @@ def _classify_integrated_chunk(source_text: str) -> tuple[str, float, list[str]]
         "규제지역",
         "비규제지역",
         "토지거래허가구역",
+        "\ud22c\uae30\uacfc\uc5f4\uc9c0\uad6c",
+        "\uc870\uc815\ub300\uc0c1\uc9c0\uc5ed",
         "서울",
         "경기",
         "지역",
@@ -562,6 +644,9 @@ def _section_warnings(target_rule_type: str, source_text: str) -> list[str]:
             warnings.append("Region group phrase needs manual expansion before candidate generation.")
         elif not _extract_region_scope(source_text)["sido"]:
             warnings.append("Region scope may be missing.")
+    elif target_rule_type == "POLICY_EVENT":
+        if not _contains_explicit_policy_date(source_text):
+            warnings.append("Effective date may require manual confirmation.")
     return warnings
 
 
@@ -578,11 +663,15 @@ def _section_metadata(target_rule_type: str, source_text: str) -> dict:
 
 
 def _infer_region_policy_type(source_text: str) -> str | None:
-    if "토지거래허가구역" in source_text:
+    if "\ud1a0\uc9c0\uac70\ub798\ud5c8\uac00\uad6c\uc5ed" in source_text:
         return "LAND_TRANSACTION_PERMISSION"
-    if "비규제지역" in source_text:
+    if "\ud22c\uae30\uacfc\uc5f4\uc9c0\uad6c" in source_text:
+        return "SPECULATION_OVERHEATED_DISTRICT"
+    if "\uc870\uc815\ub300\uc0c1\uc9c0\uc5ed" in source_text:
+        return "ADJUSTMENT_TARGET_AREA"
+    if "\ube44\uaddc\uc81c\uc9c0\uc5ed" in source_text:
         return "NON_REGULATED_AREA"
-    if "규제지역" in source_text:
+    if "\uaddc\uc81c\uc9c0\uc5ed" in source_text:
         return "REGULATED_AREA"
     return None
 
@@ -592,6 +681,11 @@ def _extract_region_scope(source_text: str) -> dict[str, str | None]:
     sigungu = None
     dong = None
     region_level = "SIDO"
+
+    if "\uc11c\uc6b8" in source_text:
+        sido = "\uc11c\uc6b8"
+    elif "\uacbd\uae30" in source_text:
+        sido = "\uacbd\uae30"
 
     if "서울" in source_text:
         sido = "서울"
@@ -605,6 +699,29 @@ def _extract_region_scope(source_text: str) -> dict[str, str | None]:
     if sigungu_match:
         sigungu = sigungu_match.group(1)
         region_level = "SIGUNGU"
+    if sigungu is None:
+        sigungu_match = re.search(
+            (
+                r"(\uc885\ub85c\uad6c|\uc911\uad6c|\uc6a9\uc0b0\uad6c|\uc131\ub3d9\uad6c|"
+                r"\uad11\uc9c4\uad6c|\ub3d9\ub300\ubb38\uad6c|\uc911\ub791\uad6c|\uc131\ubd81\uad6c|"
+                r"\uac15\ubd81\uad6c|\ub3c4\ubd09\uad6c|\ub178\uc6d0\uad6c|\uc740\ud3c9\uad6c|"
+                r"\uc11c\ub300\ubb38\uad6c|\ub9c8\ud3ec\uad6c|\uc591\ucc9c\uad6c|\uac15\uc11c\uad6c|"
+                r"\uad6c\ub85c\uad6c|\uae08\ucc9c\uad6c|\uc601\ub4f1\ud3ec\uad6c|\ub3d9\uc791\uad6c|"
+                r"\uad00\uc545\uad6c|\uc11c\ucd08\uad6c|\uac15\ub0a8\uad6c|\uc1a1\ud30c\uad6c|"
+                r"\uac15\ub3d9\uad6c|\uc218\uc6d0\uc2dc|\uc131\ub0a8\uc2dc|\uace0\uc591\uc2dc|"
+                r"\uc6a9\uc778\uc2dc|\ubd80\ucc9c\uc2dc|\uc548\uc0b0\uc2dc|\uc548\uc591\uc2dc|"
+                r"\ub0a8\uc591\uc8fc\uc2dc|\ud654\uc131\uc2dc|\ud3c9\ud0dd\uc2dc|\uc758\uc815\ubd80\uc2dc|"
+                r"\uc2dc\ud765\uc2dc|\ud30c\uc8fc\uc2dc|\uae40\ud3ec\uc2dc|\uad11\uba85\uc2dc|"
+                r"\uad70\ud3ec\uc2dc|\uad11\uc8fc\uc2dc|\uc774\ucc9c\uc2dc|\uc624\uc0b0\uc2dc|"
+                r"\ud558\ub0a8\uc2dc|\uc758\uc655\uc2dc|\uc591\uc8fc\uc2dc|\uad6c\ub9ac\uc2dc|"
+                r"\uc548\uc131\uc2dc|\ud3ec\ucc9c\uc2dc|\uc591\ud3c9\uad70|\uc5ec\uc8fc\uc2dc|"
+                r"\ub3d9\ub450\ucc9c\uc2dc|\uacfc\ucc9c\uc2dc)"
+            ),
+            source_text,
+        )
+        if sigungu_match:
+            sigungu = sigungu_match.group(1)
+            region_level = "SIGUNGU"
 
     dong_match = re.search(r"([가-힣]+동)", source_text)
     if dong_match and sigungu is not None:
@@ -711,6 +828,129 @@ def _normalize_expanded_regions(value) -> list[dict]:
             }
         )
     return expanded_regions
+
+
+def _is_policy_event_text(source_text: str) -> bool:
+    strong_keywords = (
+        "유예",
+        "종료",
+        "종료일",
+        "시행일",
+        "잔금기한",
+        "실거주 의무",
+        "보유",
+        "매도",
+        "리스크",
+        "안내",
+        "연장",
+    )
+    return any(keyword in source_text for keyword in strong_keywords)
+
+
+def _contains_explicit_policy_date(source_text: str) -> bool:
+    return bool(re.search(r"20\d{2}[.\-/년]\s*\d{1,2}[.\-/월]\s*\d{1,2}", source_text))
+
+
+def _extract_policy_dates(source_text: str) -> dict[str, str | None]:
+    matches = re.findall(r"(20\d{2})[.\-/년]\s*(\d{1,2})[.\-/월]\s*(\d{1,2})", source_text)
+    parsed_dates = [
+        f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
+        for year, month, day in matches
+    ]
+    if not parsed_dates:
+        return {"effective_from": None, "effective_to": None}
+    if any(keyword in source_text for keyword in ("종료", "종료일", "만료")):
+        return {"effective_from": None, "effective_to": parsed_dates[0]}
+    return {
+        "effective_from": parsed_dates[0],
+        "effective_to": parsed_dates[1] if len(parsed_dates) > 1 else None,
+    }
+
+
+def _resolve_policy_event_effective_from(
+    *,
+    effective_date: str | None,
+    extracted_effective_from: str | None,
+    extracted_effective_to: str | None,
+) -> str:
+    if extracted_effective_from:
+        return extracted_effective_from
+    if extracted_effective_to and effective_date:
+        try:
+            import_date = date.fromisoformat(effective_date)
+            end_date = date.fromisoformat(extracted_effective_to)
+        except ValueError:
+            return extracted_effective_to
+        return min(import_date, end_date).isoformat()
+    if effective_date:
+        return effective_date
+    return extracted_effective_to or str(date.today())
+
+
+def _infer_policy_event_type(source_text: str) -> str:
+    if any(keyword in source_text for keyword in ("LTV", "DSR", "대출")):
+        return "LOAN"
+    if any(keyword in source_text for keyword in ("양도세", "취득세", "보유세", "세금")):
+        return "TAX"
+    if any(keyword in source_text for keyword in ("토지거래허가", "허가구역")):
+        return "PERMISSION"
+    if any(keyword in source_text for keyword in ("잔금", "계약")):
+        return "CONTRACT"
+    if any(keyword in source_text for keyword in ("매도", "거래", "보유")):
+        return "TRANSACTION"
+    if any(keyword in source_text for keyword in ("조정대상지역", "규제지역")):
+        return "REGULATION"
+    return "INFO"
+
+
+def _build_policy_event_title(source_text: str) -> str:
+    compact = " ".join(source_text.split())
+    if len(compact) <= 60:
+        return compact
+    return compact[:57].rstrip() + "..."
+
+
+def _build_policy_event_summary(source_text: str) -> str:
+    compact = " ".join(source_text.split())
+    if len(compact) <= 140:
+        return compact
+    return compact[:137].rstrip() + "..."
+
+
+def _infer_policy_event_buyer_type(source_text: str) -> str:
+    if "다주택" in source_text:
+        return "MULTI_HOME"
+    if "1주택" in source_text or "일주택" in source_text:
+        return "ONE_HOME"
+    if "무주택" in source_text:
+        return "NO_HOME"
+    return "ANY"
+
+
+def _infer_policy_event_investment_purpose(source_text: str) -> str:
+    if any(keyword in source_text for keyword in ("실거주", "거주")):
+        return "OWNER_OCCUPIED"
+    if any(keyword in source_text for keyword in ("투자", "임대", "매도")):
+        return "INVESTMENT"
+    return "ANY"
+
+
+def _infer_policy_event_impact_level(source_text: str) -> str:
+    if any(
+        keyword in source_text
+        for keyword in ("양도세", "종료", "토지거래허가", "실거주 의무", "잔금기한", "리스크")
+    ):
+        return "HIGH"
+    if any(keyword in source_text for keyword in ("유예", "연장", "시행", "조정대상지역")):
+        return "MEDIUM"
+    return "LOW"
+
+
+def _infer_policy_event_action_required(source_text: str) -> bool:
+    return any(
+        keyword in source_text
+        for keyword in ("종료", "잔금기한", "실거주 의무", "허가", "리스크", "기한", "매도", "계약")
+    )
 
 
 def _find_rule(items: list[dict], predicate) -> dict | None:

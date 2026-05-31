@@ -4,11 +4,30 @@ from datetime import date
 
 
 REGION_LEVELS = ("SIDO", "SIGUNGU", "DONG")
-POLICY_TYPES = ("REGULATED_AREA", "NON_REGULATED_AREA", "LAND_TRANSACTION_PERMISSION")
+POLICY_TYPES = (
+    "REGULATED_AREA",
+    "NON_REGULATED_AREA",
+    "LAND_TRANSACTION_PERMISSION",
+    "SPECULATION_OVERHEATED_DISTRICT",
+    "ADJUSTMENT_TARGET_AREA",
+)
+CREATABLE_POLICY_TYPES = (
+    "NON_REGULATED_AREA",
+    "LAND_TRANSACTION_PERMISSION",
+    "SPECULATION_OVERHEATED_DISTRICT",
+    "ADJUSTMENT_TARGET_AREA",
+)
 LOAN_REGION_TYPES = ("REGULATED", "NON_REGULATED")
 _LOAN_POLICY_TO_REGION_TYPE = {
     "REGULATED_AREA": "REGULATED",
     "NON_REGULATED_AREA": "NON_REGULATED",
+    "SPECULATION_OVERHEATED_DISTRICT": "REGULATED",
+    "ADJUSTMENT_TARGET_AREA": "REGULATED",
+}
+_POSITIVE_LOAN_POLICY_TYPES = {
+    "REGULATED_AREA",
+    "SPECULATION_OVERHEATED_DISTRICT",
+    "ADJUSTMENT_TARGET_AREA",
 }
 _SPECIFICITY_SCORE = {
     "SIDO": 1,
@@ -25,7 +44,7 @@ class RegionPolicyService:
         return list(REGION_LEVELS)
 
     def list_policy_types(self) -> list[str]:
-        return list(POLICY_TYPES)
+        return list(CREATABLE_POLICY_TYPES)
 
     def create_region_policy_status(
         self,
@@ -146,6 +165,10 @@ class RegionPolicyService:
             "notes": (str(notes).strip() if notes else None),
             "source_policy_import_id": source_policy_import_id,
         }
+        if normalized["dong"]:
+            normalized["region_level"] = "DONG"
+        elif normalized["sigungu"]:
+            normalized["region_level"] = "SIGUNGU"
 
         if normalized["region_level"] not in REGION_LEVELS:
             raise ValueError(f"Unsupported region level: {normalized['region_level']}")
@@ -178,20 +201,29 @@ class RegionPolicyService:
         return normalized
 
     def _raise_if_scope_conflicts(self, normalized: dict) -> None:
-        if normalized["policy_type"] == "LAND_TRANSACTION_PERMISSION":
-            return
-
         for item in self.region_policy_repository.list_all():
-            if str(item["policy_type"]) not in {"REGULATED_AREA", "NON_REGULATED_AREA"}:
-                continue
-            if str(item["policy_type"]) == normalized["policy_type"]:
-                continue
             if not self._same_scope(item, normalized):
                 continue
             if self._date_ranges_overlap(item, normalized):
-                raise ValueError(
-                    "An overlapping region loan policy already exists for the same scope."
-                )
+                existing_policy_type = str(item["policy_type"])
+                new_policy_type = str(normalized["policy_type"])
+                if existing_policy_type == new_policy_type:
+                    raise ValueError(
+                        "An overlapping region policy already exists for the same scope and type."
+                    )
+                if self._is_non_regulated_conflict(existing_policy_type, new_policy_type):
+                    raise ValueError(
+                        "A non-regulated status cannot overlap with an active regulated status for the same scope."
+                    )
+
+    def _is_non_regulated_conflict(self, left_policy_type: str, right_policy_type: str) -> bool:
+        left_is_non_regulated = left_policy_type == "NON_REGULATED_AREA"
+        right_is_non_regulated = right_policy_type == "NON_REGULATED_AREA"
+        left_is_regulated = left_policy_type in _POSITIVE_LOAN_POLICY_TYPES
+        right_is_regulated = right_policy_type in _POSITIVE_LOAN_POLICY_TYPES
+        return (left_is_non_regulated and right_is_regulated) or (
+            right_is_non_regulated and left_is_regulated
+        )
 
     def _same_scope(self, left: dict, right: dict) -> bool:
         return (

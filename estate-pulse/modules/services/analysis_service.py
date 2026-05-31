@@ -28,6 +28,9 @@ from modules.analyzers.transaction_analyzer import (
 from modules.services.report_service import build_analysis_summary
 
 OWNER_OCCUPIED = "OWNER_OCCUPIED"
+CASH_ONLY = "CASH_ONLY"
+SELL_OWNED_REAL_ESTATE = "SELL_OWNED_REAL_ESTATE"
+FUNDING_MODES = (CASH_ONLY, SELL_OWNED_REAL_ESTATE)
 
 
 @dataclass
@@ -50,6 +53,7 @@ class BenchmarkInputs:
     brokerage_fee_override: int | None = None
     legal_fee_override: int | None = None
     reserve_cost_override: int | None = None
+    funding_mode: str = CASH_ONLY
 
 
 class AnalysisService:
@@ -66,6 +70,7 @@ class AnalysisService:
         rule_runtime_service=None,
         complex_repository=None,
         region_policy_service=None,
+        policy_event_service=None,
     ) -> None:
         self.settings = settings
         self.listing_repository = listing_repository
@@ -77,6 +82,7 @@ class AnalysisService:
         self.rule_runtime_service = rule_runtime_service
         self.complex_repository = complex_repository
         self.region_policy_service = region_policy_service
+        self.policy_event_service = policy_event_service
 
     def run_analysis(
         self,
@@ -93,6 +99,11 @@ class AnalysisService:
             raise ValueError("Listing not found.")
         if not finance_profile:
             raise ValueError("Finance profile not found.")
+        funding_mode = _normalize_funding_mode(benchmarks.funding_mode)
+        purchase_power = _calculate_purchase_power(
+            finance_profile=finance_profile,
+            funding_mode=funding_mode,
+        )
 
         stored_investment_type = (
             listing.get("effective_investment_type")
@@ -112,9 +123,23 @@ class AnalysisService:
             reference_date=benchmarks.reference_date,
         )
 
+        complex_row = (
+            self.complex_repository.get(int(listing["complex_id"]))
+            if self.complex_repository is not None
+            else None
+        )
         region_context = self._resolve_region_context(
             listing=listing,
+            complex_row=complex_row,
             manual_region_type=benchmarks.region_type,
+            reference_date=benchmarks.reference_date,
+        )
+        relevant_policy_events = self._resolve_relevant_policy_events(
+            complex_row=complex_row,
+            buyer_type=benchmarks.buyer_type,
+            investment_purpose=(
+                OWNER_OCCUPIED if primary_user_mode == OWNER_OCCUPIED else benchmarks.purpose
+            ),
             reference_date=benchmarks.reference_date,
         )
 
@@ -129,10 +154,13 @@ class AnalysisService:
             buyer_type=benchmarks.buyer_type,
             purpose=OWNER_OCCUPIED if primary_user_mode == OWNER_OCCUPIED else benchmarks.purpose,
             reference_date=benchmarks.reference_date,
-            ltv_rate_override=benchmarks.ltv_rate_override,
+            ltv_rate_override=_resolve_ltv_rate_override(
+                analysis_override=benchmarks.ltv_rate_override,
+                finance_profile=finance_profile,
+            ),
             final_loan_amount_override=benchmarks.expected_loan_amount,
             annual_income=finance_profile.get("annual_income"),
-            existing_debt=int(finance_profile.get("existing_debt") or 0),
+            existing_debt=int(purchase_power["existing_debt_for_loan_screening"]),
             annual_interest_rate=finance_profile.get("interest_rate"),
             rules=active_loan_rules,
         )
@@ -185,7 +213,7 @@ class AnalysisService:
                 sale_price=listing["sale_price"],
                 estimated_loan=expected_loan_amount,
                 acquisition_cost_total=acquisition_cost_total,
-                cash_amount=finance_profile["cash_amount"],
+                cash_amount=int(purchase_power["available_cash_for_purchase"]),
                 annual_income=finance_profile.get("annual_income"),
                 annual_interest_rate=finance_profile.get("interest_rate"),
             )
@@ -208,7 +236,10 @@ class AnalysisService:
                 expected_monthly_rent=int(listing.get("expected_monthly_rent") or 0),
             )
             required_cash = int(mode_metrics["required_cash"])
-            shortage_cash = calculate_shortage_cash(required_cash, finance_profile["cash_amount"])
+            shortage_cash = calculate_shortage_cash(
+                required_cash,
+                int(purchase_power["available_cash_for_purchase"]),
+            )
             current_required_cash = mode_metrics["current_required_cash"]
             future_required_cash = mode_metrics["future_required_cash"]
             monthly_cash_flow = mode_metrics["monthly_cash_flow"]
@@ -225,7 +256,7 @@ class AnalysisService:
             one_year_high_price=market_context["derived_inputs"]["one_year_high_price"],
             expected_jeonse_price=market_context["derived_inputs"]["expected_jeonse_price"],
             required_cash=required_cash,
-            user_cash=finance_profile["cash_amount"],
+            user_cash=int(purchase_power["available_cash_for_purchase"]),
         )
         complex_profile = self._get_complex_profile(
             complex_id=int(listing["complex_id"]),
@@ -281,6 +312,9 @@ class AnalysisService:
             "resolved_region_type": region_context["region_type"],
             "region_policy_source": region_context["source"],
             "active_region_policies": region_context["active_policies"],
+            "relevant_policy_events": relevant_policy_events,
+            "funding_mode": funding_mode,
+            "purchase_power": purchase_power,
             "required_cash": required_cash,
             "shortage_cash": shortage_cash,
             "current_required_cash": current_required_cash,
@@ -538,6 +572,7 @@ class AnalysisService:
         self,
         *,
         listing: dict,
+        complex_row: dict | None,
         manual_region_type: str | None,
         reference_date: date | None,
     ) -> dict:
@@ -554,7 +589,6 @@ class AnalysisService:
                 "active_policies": [],
             }
 
-        complex_row = self.complex_repository.get(int(listing["complex_id"]))
         if not complex_row:
             return {
                 "region_type": "NON_REGULATED",
@@ -567,6 +601,26 @@ class AnalysisService:
             sigungu=complex_row.get("sigungu"),
             dong=complex_row.get("dong"),
             reference_date=reference_date,
+        )
+
+    def _resolve_relevant_policy_events(
+        self,
+        *,
+        complex_row: dict | None,
+        buyer_type: str,
+        investment_purpose: str,
+        reference_date: date | None,
+    ) -> list[dict]:
+        if self.policy_event_service is None:
+            return []
+        return self.policy_event_service.find_relevant_policy_events(
+            reference_date=reference_date,
+            region_sido=complex_row.get("sido") if complex_row else None,
+            region_sigungu=complex_row.get("sigungu") if complex_row else None,
+            region_dong=complex_row.get("dong") if complex_row else None,
+            buyer_type=buyer_type,
+            investment_purpose=investment_purpose,
+            include_future=True,
         )
 
 
@@ -586,15 +640,66 @@ def _resolve_analysis_investment_type(
     return stored_investment_type
 
 
+def _resolve_ltv_rate_override(
+    *,
+    analysis_override: float | None,
+    finance_profile: dict,
+) -> float | None:
+    if analysis_override is not None:
+        return analysis_override
+    if not finance_profile.get("use_manual_ltv"):
+        return None
+    manual_ltv_rate = finance_profile.get("manual_ltv_rate")
+    if manual_ltv_rate is None:
+        return None
+    return float(manual_ltv_rate)
+
+
+def _normalize_funding_mode(value: str | None) -> str:
+    normalized = str(value or CASH_ONLY).strip().upper()
+    if normalized not in FUNDING_MODES:
+        return CASH_ONLY
+    return normalized
+
+
+def _calculate_purchase_power(*, finance_profile: dict, funding_mode: str) -> dict:
+    cash_amount = int(finance_profile.get("cash_amount") or 0)
+    owned_real_estate_value = int(finance_profile.get("owned_real_estate_value") or 0)
+    owned_real_estate_debt = int(finance_profile.get("owned_real_estate_debt") or 0)
+    credit_loan_balance = int(finance_profile.get("credit_loan_balance") or 0)
+    other_loan_balance = int(finance_profile.get("other_loan_balance") or 0)
+    stored_existing_debt = int(finance_profile.get("existing_debt") or 0)
+    component_debt_total = owned_real_estate_debt + credit_loan_balance + other_loan_balance
+    existing_debt_total = stored_existing_debt or component_debt_total
+
+    sale_net_cash = 0
+    existing_debt_for_loan_screening = existing_debt_total
+    if funding_mode == SELL_OWNED_REAL_ESTATE:
+        sale_net_cash = max(owned_real_estate_value - owned_real_estate_debt, 0)
+        existing_debt_for_loan_screening = max(existing_debt_total - owned_real_estate_debt, 0)
+
+    available_cash_for_purchase = cash_amount + sale_net_cash
+    return {
+        "cash_amount": cash_amount,
+        "funding_mode": funding_mode,
+        "owned_real_estate_value": owned_real_estate_value,
+        "owned_real_estate_debt": owned_real_estate_debt,
+        "sale_net_cash": sale_net_cash,
+        "available_cash_for_purchase": available_cash_for_purchase,
+        "existing_debt_total": existing_debt_total,
+        "existing_debt_for_loan_screening": existing_debt_for_loan_screening,
+    }
+
+
 def _build_decision(*, primary_user_mode: str, shortage_cash: int) -> str:
     if primary_user_mode == OWNER_OCCUPIED:
         return (
-            "Current cash appears sufficient for owner-occupied purchase."
+            "현재 자금 기준으로 실거주 매수가 가능합니다."
             if shortage_cash <= 0
-            else "Additional cash is required for owner-occupied purchase."
+            else "실거주 매수를 위해 추가 현금이 필요합니다."
         )
     return (
-        "Current cash appears sufficient for this investment candidate."
+        "현재 자금 기준으로 투자 검토가 가능합니다."
         if shortage_cash <= 0
-        else "Additional cash is required for this investment candidate."
+        else "투자 검토를 위해 추가 현금이 필요합니다."
     )

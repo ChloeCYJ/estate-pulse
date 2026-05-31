@@ -12,6 +12,7 @@ from modules.services.policy_parsers import (
     PolicyParser,
     get_default_policy_parsers,
 )
+from modules.services.policy_event_service import PolicyEventService
 from modules.services.rule_runtime_service import RuleRuntimeService
 
 
@@ -37,14 +38,18 @@ class PolicyImportService:
         *,
         policy_import_repository,
         rule_candidate_repository,
+        policy_event_candidate_repository=None,
         rule_runtime_service: RuleRuntimeService,
         region_policy_service=None,
+        policy_event_service: PolicyEventService | None = None,
         parsers: dict[str, PolicyParser] | None = None,
     ) -> None:
         self.policy_import_repository = policy_import_repository
         self.rule_candidate_repository = rule_candidate_repository
+        self.policy_event_candidate_repository = policy_event_candidate_repository
         self.rule_runtime_service = rule_runtime_service
         self.region_policy_service = region_policy_service
+        self.policy_event_service = policy_event_service
         self.parsers = parsers or get_default_policy_parsers()
 
     def list_parser_names(self) -> list[str]:
@@ -143,12 +148,46 @@ class PolicyImportService:
             raise
 
         candidate_ids: list[int] = []
+        policy_event_candidate_ids: list[int] = []
         for parsed_candidate in parsed_candidates:
             candidate_target_rule_type = str(parsed_candidate.target_rule_type)
             if candidate_target_rule_type not in CANDIDATE_TARGET_RULE_TYPES:
                 raise ValueError(
                     f"Unsupported candidate target rule type: {candidate_target_rule_type}"
                 )
+            if candidate_target_rule_type == "POLICY_EVENT":
+                if self.policy_event_candidate_repository is None or self.policy_event_service is None:
+                    raise ValueError("Policy event candidate support is unavailable.")
+                normalized_event = self.policy_event_service.normalize_policy_event(
+                    {
+                        **parsed_candidate.proposed_rule,
+                        "source_name": source_name,
+                    }
+                )
+                changed_fields = _changed_fields(
+                    parsed_candidate.previous_rule,
+                    normalized_event,
+                    candidate_target_rule_type,
+                )
+                warnings = list(parsed_candidate.warnings)
+                policy_event_candidate_ids.append(
+                    self.policy_event_candidate_repository.create(
+                        policy_import_id=policy_import_id,
+                        policy_type=str(normalized_event["policy_type"]),
+                        title=str(normalized_event["title"]),
+                        impact_level=str(normalized_event["impact_level"]),
+                        proposed_event_json=json.dumps(
+                            normalized_event,
+                            ensure_ascii=False,
+                            indent=2,
+                            sort_keys=True,
+                        ),
+                        confidence=parsed_candidate.confidence,
+                        warnings=json.dumps(warnings, ensure_ascii=False),
+                        status=CANDIDATE_STATUS_PENDING_REVIEW,
+                    )
+                )
+                continue
             validation_result = self.validate_rule_candidate(
                 target_rule_type=candidate_target_rule_type,
                 proposed_rule=parsed_candidate.proposed_rule,
@@ -197,10 +236,17 @@ class PolicyImportService:
         return {
             "policy_import_id": policy_import_id,
             "candidate_ids": candidate_ids,
+            "policy_event_candidate_ids": policy_event_candidate_ids,
+            "total_candidate_count": len(candidate_ids) + len(policy_event_candidate_ids),
             "parser_status": PARSER_STATUS_COMPLETED,
         }
 
-    def get_policy_import_detail(self, policy_import_id: int) -> dict:
+    def get_policy_import_detail(
+        self,
+        policy_import_id: int,
+        *,
+        include_policy_event_candidates: bool = False,
+    ) -> dict:
         policy_import = self.policy_import_repository.get(policy_import_id)
         if not policy_import:
             raise ValueError("Policy import not found.")
@@ -208,20 +254,34 @@ class PolicyImportService:
             self._decorate_candidate(candidate)
             for candidate in self.rule_candidate_repository.list_by_policy_import(policy_import_id)
         ]
+        if include_policy_event_candidates and self.policy_event_candidate_repository is not None:
+            candidates.extend(
+                self._decorate_policy_event_candidate(candidate)
+                for candidate in self.policy_event_candidate_repository.list_by_policy_import(
+                    policy_import_id
+                )
+            )
         return {
             "policy_import": policy_import,
-            "candidates": candidates,
+            "candidates": sorted(candidates, key=lambda item: str(item["created_at"])),
         }
 
     def update_candidate_proposed_rule(
         self,
         *,
-        candidate_id: int,
+        candidate_id: int | None = None,
+        candidate_key: str | None = None,
         proposed_rule_json_text: str,
     ) -> dict:
-        candidate = self.rule_candidate_repository.get(candidate_id)
-        if not candidate:
-            raise ValueError("Candidate not found.")
+        candidate_kind, candidate = self._get_candidate_record(
+            candidate_id=candidate_id,
+            candidate_key=candidate_key,
+        )
+        if candidate_kind == "POLICY_EVENT":
+            return self._update_policy_event_candidate(
+                candidate=candidate,
+                proposed_rule_json_text=proposed_rule_json_text,
+            )
 
         try:
             proposed_rule = json.loads(proposed_rule_json_text)
@@ -251,7 +311,7 @@ class PolicyImportService:
             sort_keys=True,
         )
         self.rule_candidate_repository.update_candidate_payload(
-            candidate_id=candidate_id,
+            candidate_id=int(candidate["id"]),
             proposed_rule_json=normalized_json,
             changed_fields_json=json.dumps(changed_fields, ensure_ascii=False),
             warnings=json.dumps(warnings, ensure_ascii=False),
@@ -266,9 +326,17 @@ class PolicyImportService:
                 validation_result.normalized_rule,
             ),
         )
-        return self._decorate_candidate(self.rule_candidate_repository.get(candidate_id) or candidate)
+        return self._decorate_candidate(
+            self.rule_candidate_repository.get(int(candidate["id"])) or candidate
+        )
 
-    def set_candidate_status(self, *, candidate_id: int, status: str) -> None:
+    def set_candidate_status(
+        self,
+        *,
+        candidate_id: int | None = None,
+        candidate_key: str | None = None,
+        status: str,
+    ) -> None:
         if status not in {
             CANDIDATE_STATUS_PENDING_REVIEW,
             CANDIDATE_STATUS_APPROVED,
@@ -276,9 +344,10 @@ class PolicyImportService:
         }:
             raise ValueError(f"Unsupported candidate status: {status}")
 
-        candidate = self.rule_candidate_repository.get(candidate_id)
-        if not candidate:
-            raise ValueError("Candidate not found.")
+        candidate_kind, candidate = self._get_candidate_record(
+            candidate_id=candidate_id,
+            candidate_key=candidate_key,
+        )
 
         if status == CANDIDATE_STATUS_APPROVED:
             self._raise_if_candidate_invalid(candidate)
@@ -287,22 +356,38 @@ class PolicyImportService:
             if status in {CANDIDATE_STATUS_APPROVED, CANDIDATE_STATUS_REJECTED}
             else None
         )
+        if candidate_kind == "POLICY_EVENT":
+            if self.policy_event_candidate_repository is None:
+                raise ValueError("Policy event candidate support is unavailable.")
+            self.policy_event_candidate_repository.update_status(
+                candidate_id=int(candidate["id"]),
+                status=status,
+                timestamp_field=timestamp_field,
+            )
+            return
         self.rule_candidate_repository.update_status(
-            candidate_id=candidate_id,
+            candidate_id=int(candidate["id"]),
             status=status,
             timestamp_field=timestamp_field,
         )
 
-    def apply_candidates(self, *, candidate_ids: list[int]) -> list[int]:
-        if not candidate_ids:
+    def apply_candidates(
+        self,
+        *,
+        candidate_ids: list[int] | None = None,
+        candidate_keys: list[str] | None = None,
+    ) -> list[str]:
+        resolved_keys = candidate_keys or [
+            self._candidate_key("RULE", int(candidate_id))
+            for candidate_id in (candidate_ids or [])
+        ]
+        if not resolved_keys:
             raise ValueError("Select at least one candidate to apply.")
 
         working_active_loan_rules = self.rule_runtime_service.serialize_active_loan_rules()
-        applied_ids: list[int] = []
-        for candidate_id in candidate_ids:
-            candidate = self.rule_candidate_repository.get(candidate_id)
-            if not candidate:
-                raise ValueError(f"Candidate not found: {candidate_id}")
+        applied_ids: list[str] = []
+        for candidate_key in resolved_keys:
+            candidate_kind, candidate = self._get_candidate_record(candidate_key=candidate_key)
             if candidate["status"] != CANDIDATE_STATUS_APPROVED:
                 raise ValueError("Only approved candidates can be applied.")
             self._raise_if_candidate_invalid(candidate)
@@ -348,13 +433,26 @@ class PolicyImportService:
                     notes=validation_result.normalized_rule.get("notes"),
                     source_policy_import_id=int(candidate["policy_import_id"]),
                 )
+            elif target_rule_type == "POLICY_EVENT":
+                if self.policy_event_candidate_repository is None or self.policy_event_service is None:
+                    raise ValueError("Policy event support is unavailable.")
+                proposed_rule = json.loads(candidate["proposed_rule_json"])
+                normalized_event = self.policy_event_service.normalize_policy_event(proposed_rule)
+                self.policy_event_service.create_policy_event(**normalized_event)
+                self.policy_event_candidate_repository.update_status(
+                    candidate_id=int(candidate["id"]),
+                    status=CANDIDATE_STATUS_APPLIED,
+                    timestamp_field="applied_at",
+                )
+                applied_ids.append(candidate_key)
+                continue
 
             self.rule_candidate_repository.update_status(
-                candidate_id=candidate_id,
+                candidate_id=int(candidate["id"]),
                 status=CANDIDATE_STATUS_APPLIED,
                 timestamp_field="applied_at",
             )
-            applied_ids.append(candidate_id)
+            applied_ids.append(candidate_key)
         return applied_ids
 
     def preview_loan_candidate(
@@ -437,6 +535,8 @@ class PolicyImportService:
             return self._validate_brokerage_rule(proposed_rule=proposed_rule)
         if target_rule_type == "REGION_POLICY":
             return self._validate_region_policy_rule(proposed_rule=proposed_rule)
+        if target_rule_type == "POLICY_EVENT":
+            return self._validate_policy_event_candidate(proposed_rule=proposed_rule)
         return self._validate_unknown_rule(proposed_rule=proposed_rule)
 
     def _validate_loan_rule(
@@ -640,9 +740,11 @@ class PolicyImportService:
             "REGULATED_AREA",
             "NON_REGULATED_AREA",
             "LAND_TRANSACTION_PERMISSION",
+            "SPECULATION_OVERHEATED_DISTRICT",
+            "ADJUSTMENT_TARGET_AREA",
         }:
             errors.append(
-                "policy_type must be REGULATED_AREA, NON_REGULATED_AREA, or LAND_TRANSACTION_PERMISSION."
+                "policy_type must be a supported region regulation type."
             )
         if not normalized_rule["sido"]:
             errors.append("sido is required.")
@@ -684,6 +786,23 @@ class PolicyImportService:
         if not normalized_rule["notes"]:
             warnings.append("notes is empty.")
         return ValidationResult(normalized_rule=normalized_rule, warnings=warnings, errors=[])
+
+    def _validate_policy_event_candidate(self, *, proposed_rule: dict) -> ValidationResult:
+        if self.policy_event_service is None:
+            return ValidationResult(
+                normalized_rule=proposed_rule,
+                warnings=[],
+                errors=["Policy event service is unavailable."],
+            )
+        try:
+            normalized_rule = self.policy_event_service.normalize_policy_event(proposed_rule)
+        except ValueError as exc:
+            return ValidationResult(
+                normalized_rule=proposed_rule,
+                warnings=[],
+                errors=[str(exc)],
+            )
+        return ValidationResult(normalized_rule=normalized_rule, warnings=[], errors=[])
 
     def _validate_effective_dates(self, proposed_rule: dict, errors: list[str]) -> None:
         try:
@@ -729,6 +848,11 @@ class PolicyImportService:
                 if self.region_policy_service is not None
                 else []
             ),
+            "POLICY_EVENT": (
+                self.policy_event_service.list_policy_events()
+                if self.policy_event_service is not None
+                else []
+            ),
             "UNKNOWN": [],
         }
 
@@ -756,6 +880,8 @@ class PolicyImportService:
 
     def _decorate_candidate(self, candidate: dict) -> dict:
         decorated = dict(candidate)
+        decorated["candidate_category"] = "RULE"
+        decorated["candidate_key"] = self._candidate_key("RULE", int(candidate["id"]))
         decorated["warnings_list"] = _load_json_list(candidate.get("warnings"))
         decorated["changed_fields_list"] = _load_json_list(
             candidate.get("changed_fields_json")
@@ -772,6 +898,104 @@ class PolicyImportService:
             decorated["changed_field_details"]
         )
         return decorated
+
+    def _decorate_policy_event_candidate(self, candidate: dict) -> dict:
+        proposed_rule = _load_json_or_none(candidate.get("proposed_event_json")) or {}
+        changed_fields_list = _changed_fields(None, proposed_rule, "POLICY_EVENT")
+        return {
+            **candidate,
+            "candidate_category": "POLICY_EVENT",
+            "candidate_key": self._candidate_key("POLICY_EVENT", int(candidate["id"])),
+            "target_rule_type": "POLICY_EVENT",
+            "rule_name": str(candidate["title"]),
+            "rule_version": None,
+            "warnings_list": _load_json_list(candidate.get("warnings")),
+            "changed_fields_list": changed_fields_list,
+            "previous_rule": None,
+            "proposed_rule": proposed_rule,
+            "changed_field_details": _build_changed_field_details(
+                "POLICY_EVENT",
+                None,
+                proposed_rule,
+                changed_fields_list,
+            ),
+            "change_summary": _build_change_summary(
+                _build_changed_field_details(
+                    "POLICY_EVENT",
+                    None,
+                    proposed_rule,
+                    changed_fields_list,
+                )
+            ),
+        }
+
+    def _update_policy_event_candidate(self, *, candidate: dict, proposed_rule_json_text: str) -> dict:
+        if self.policy_event_candidate_repository is None or self.policy_event_service is None:
+            raise ValueError("Policy event candidate support is unavailable.")
+        try:
+            proposed_rule = json.loads(proposed_rule_json_text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid JSON: {exc}") from exc
+        normalized_event = self.policy_event_service.normalize_policy_event(proposed_rule)
+        self.policy_event_candidate_repository.update_candidate_payload(
+            candidate_id=int(candidate["id"]),
+            policy_type=str(normalized_event["policy_type"]),
+            title=str(normalized_event["title"]),
+            impact_level=str(normalized_event["impact_level"]),
+            proposed_event_json=json.dumps(
+                normalized_event,
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            ),
+            warnings=json.dumps(_load_json_list(candidate.get("warnings")), ensure_ascii=False),
+            confidence=candidate.get("confidence"),
+        )
+        refreshed = self.policy_event_candidate_repository.get(int(candidate["id"])) or candidate
+        return self._decorate_policy_event_candidate(refreshed)
+
+    def _get_candidate_record(
+        self,
+        *,
+        candidate_id: int | None = None,
+        candidate_key: str | None = None,
+    ) -> tuple[str, dict]:
+        if candidate_key:
+            category, raw_id = candidate_key.split(":", 1)
+            numeric_id = int(raw_id)
+            if category == "event":
+                if self.policy_event_candidate_repository is None:
+                    raise ValueError("Policy event candidate support is unavailable.")
+                candidate = self.policy_event_candidate_repository.get(numeric_id)
+                if not candidate:
+                    raise ValueError("Candidate not found.")
+                return "POLICY_EVENT", {
+                    **candidate,
+                    "target_rule_type": "POLICY_EVENT",
+                    "proposed_rule_json": candidate["proposed_event_json"],
+                }
+            candidate = self.rule_candidate_repository.get(numeric_id)
+            if not candidate:
+                raise ValueError("Candidate not found.")
+            return "RULE", candidate
+
+        if candidate_id is not None:
+            candidate = self.rule_candidate_repository.get(candidate_id)
+            if candidate:
+                return "RULE", candidate
+            if self.policy_event_candidate_repository is not None:
+                event_candidate = self.policy_event_candidate_repository.get(candidate_id)
+                if event_candidate:
+                    return "POLICY_EVENT", {
+                        **event_candidate,
+                        "target_rule_type": "POLICY_EVENT",
+                        "proposed_rule_json": event_candidate["proposed_event_json"],
+                    }
+        raise ValueError("Candidate not found.")
+
+    def _candidate_key(self, category: str, candidate_id: int) -> str:
+        prefix = "event" if category == "POLICY_EVENT" else "rule"
+        return f"{prefix}:{candidate_id}"
 
     def _validate_selected_sections_for_import(
         self,
@@ -820,6 +1044,8 @@ def _rule_name_for_candidate(
             ]
             if item
         )
+    if target_rule_type == "POLICY_EVENT":
+        return str(proposed_rule.get("title") or proposed_rule.get("summary") or "Policy event")
     if target_rule_type == "TAX" and changed_fields:
         return "세금 정책 변경"
     if target_rule_type == "BROKERAGE" and changed_fields:
@@ -832,7 +1058,7 @@ def _rule_name_for_candidate(
 def _rule_version_for_type(target_rule_type: str, proposed_rule: dict) -> str | None:
     if target_rule_type == "LOAN":
         return str(proposed_rule.get("rule_version") or "")
-    if target_rule_type == "REGION_POLICY":
+    if target_rule_type in {"REGION_POLICY", "POLICY_EVENT"}:
         return None
     if target_rule_type == "UNKNOWN":
         return None
@@ -925,6 +1151,24 @@ def _meaningful_field_paths(
             "policy_type",
             "effective_from",
             "effective_to",
+        ]
+    if target_rule_type == "POLICY_EVENT":
+        return [
+            "policy_type",
+            "title",
+            "summary",
+            "detail",
+            "effective_from",
+            "effective_to",
+            "affected_region_sido",
+            "affected_region_sigungu",
+            "affected_region_dong",
+            "affected_buyer_type",
+            "affected_investment_purpose",
+            "impact_level",
+            "calculation_supported",
+            "action_required",
+            "source_name",
         ]
     if target_rule_type == "UNKNOWN":
         return ["raw_excerpt", "notes"]
@@ -1064,6 +1308,8 @@ def _format_changed_value(target_rule_type: str, field_path: str, value):
             "REGULATED_AREA": "규제지역",
             "NON_REGULATED_AREA": "비규제지역",
             "LAND_TRANSACTION_PERMISSION": "토지거래허가구역",
+            "SPECULATION_OVERHEATED_DISTRICT": "투기과열지구",
+            "ADJUSTMENT_TARGET_AREA": "조정대상지역",
         }.get(str(value), str(value))
     if field_path == "region_level":
         return {"SIDO": "시도", "SIGUNGU": "시군구", "DONG": "동"}.get(str(value), str(value))
@@ -1072,17 +1318,33 @@ def _format_changed_value(target_rule_type: str, field_path: str, value):
 
 def _has_overlapping_region_policy(active_rules: list[dict], proposed_rule: dict) -> bool:
     for item in active_rules:
-        if item.get("policy_type") == "LAND_TRANSACTION_PERMISSION":
-            continue
-        if proposed_rule.get("policy_type") == "LAND_TRANSACTION_PERMISSION":
-            continue
-        if item.get("policy_type") == proposed_rule.get("policy_type"):
-            continue
         if not _same_region_scope(item, proposed_rule):
             continue
-        if _date_ranges_overlap(item, proposed_rule):
+        if not _date_ranges_overlap(item, proposed_rule):
+            continue
+        if item.get("policy_type") == proposed_rule.get("policy_type"):
+            return True
+        if _is_non_regulated_region_policy_conflict(
+            str(item.get("policy_type")),
+            str(proposed_rule.get("policy_type")),
+        ):
             return True
     return False
+
+
+def _is_non_regulated_region_policy_conflict(left_policy_type: str, right_policy_type: str) -> bool:
+    positive_policy_types = {
+        "REGULATED_AREA",
+        "SPECULATION_OVERHEATED_DISTRICT",
+        "ADJUSTMENT_TARGET_AREA",
+    }
+    left_is_non_regulated = left_policy_type == "NON_REGULATED_AREA"
+    right_is_non_regulated = right_policy_type == "NON_REGULATED_AREA"
+    left_is_regulated = left_policy_type in positive_policy_types
+    right_is_regulated = right_policy_type in positive_policy_types
+    return (left_is_non_regulated and right_is_regulated) or (
+        right_is_non_regulated and left_is_regulated
+    )
 
 
 def _same_region_scope(left: dict, right: dict) -> bool:

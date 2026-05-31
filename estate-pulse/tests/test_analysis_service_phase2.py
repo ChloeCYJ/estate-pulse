@@ -11,10 +11,12 @@ from modules.repositories.complex_repository import ApartmentComplexRepository
 from modules.repositories.database import initialize_database
 from modules.repositories.finance_profile_repository import UserFinanceProfileRepository
 from modules.repositories.listing_repository import ManualListingRepository
+from modules.repositories.policy_event_repository import PolicyEventRepository
 from modules.repositories.region_policy_repository import RegionPolicyRepository
 from modules.repositories.rent_transaction_repository import RentTransactionRepository
 from modules.repositories.sale_transaction_repository import SaleTransactionRepository
 from modules.services.analysis_service import AnalysisService, BenchmarkInputs
+from modules.services.policy_event_service import PolicyEventService
 from modules.services.region_policy_service import RegionPolicyService
 from modules.utils.date_utils import utc_now_iso
 
@@ -42,9 +44,13 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
         self.analysis_repository = AnalysisRepository(self.database_path)
         self.sale_repository = SaleTransactionRepository(self.database_path)
         self.rent_repository = RentTransactionRepository(self.database_path)
+        self.policy_event_repository = PolicyEventRepository(self.database_path)
         self.region_policy_repository = RegionPolicyRepository(self.database_path)
         self.region_policy_service = RegionPolicyService(
             region_policy_repository=self.region_policy_repository,
+        )
+        self.policy_event_service = PolicyEventService(
+            policy_event_repository=self.policy_event_repository,
         )
         self.analysis_service = AnalysisService(
             settings=self.settings,
@@ -55,6 +61,7 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
             rent_transaction_repository=self.rent_repository,
             complex_repository=self.complex_repository,
             region_policy_service=self.region_policy_service,
+            policy_event_service=self.policy_event_service,
         )
 
         self.complex_id = self.complex_repository.create(
@@ -134,6 +141,57 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
         self.assertEqual(result["expected_jeonse_price"], 540_000_000)
         self.assertAlmostEqual(result["jeonse_ratio"], 60.0)
 
+    def test_finance_profile_manual_ltv_is_used_only_when_enabled(self) -> None:
+        manual_profile_id = self.finance_repository.create(
+            cash_amount=250_000_000,
+            annual_income=None,
+            existing_debt=0,
+            interest_rate=None,
+            ltv_limit=None,
+            dsr_limit=None,
+            use_manual_ltv=True,
+            manual_ltv_rate=0.2,
+        )
+
+        result = self.analysis_service.run_analysis(
+            listing_id=self.listing_id,
+            finance_profile_id=manual_profile_id,
+            benchmarks=BenchmarkInputs(reference_date=date(2026, 5, 27)),
+            save_result=False,
+        )
+
+        self.assertEqual(result["loan_terms"]["ltv_source"], "manual override")
+        self.assertEqual(result["loan_terms"]["applied_ltv_rate"], 0.2)
+        self.assertEqual(result["expected_loan_amount"], 180_000_000)
+
+    def test_sell_owned_real_estate_funding_mode_uses_net_sale_cash(self) -> None:
+        replacement_profile_id = self.finance_repository.create(
+            cash_amount=200_000_000,
+            annual_income=None,
+            existing_debt=400_000_000,
+            interest_rate=None,
+            ltv_limit=None,
+            dsr_limit=None,
+            home_count=1,
+            owned_real_estate_value=1_400_000_000,
+            owned_real_estate_debt=400_000_000,
+        )
+
+        result = self.analysis_service.run_analysis(
+            listing_id=self.listing_id,
+            finance_profile_id=replacement_profile_id,
+            benchmarks=BenchmarkInputs(
+                reference_date=date(2026, 5, 27),
+                funding_mode="SELL_OWNED_REAL_ESTATE",
+            ),
+            save_result=False,
+        )
+
+        self.assertEqual(result["purchase_power"]["sale_net_cash"], 1_000_000_000)
+        self.assertEqual(result["purchase_power"]["available_cash_for_purchase"], 1_200_000_000)
+        self.assertEqual(result["purchase_power"]["existing_debt_for_loan_screening"], 0)
+        self.assertLessEqual(result["shortage_cash"], 0)
+
     def test_region_policy_auto_resolves_loan_region_type(self) -> None:
         self.region_policy_service.create_region_policy_status(
             region_level="SIGUNGU",
@@ -157,6 +215,67 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
         self.assertEqual(result["region_policy_source"], "region_policy_status")
         self.assertEqual(result["loan_terms"]["region_type"], "REGULATED")
         self.assertEqual(result["expected_loan_amount"], 270_000_000)
+
+    def test_analysis_returns_active_region_regulation_list(self) -> None:
+        complex_row = self.complex_repository.get(self.complex_id)
+        for policy_type in (
+            "LAND_TRANSACTION_PERMISSION",
+            "ADJUSTMENT_TARGET_AREA",
+        ):
+            self.region_policy_service.create_region_policy_status(
+                region_level="SIGUNGU",
+                sido=complex_row["sido"],
+                sigungu=complex_row["sigungu"],
+                dong=None,
+                policy_type=policy_type,
+                effective_from="2026-05-01",
+                effective_to=None,
+                notes="test",
+            )
+
+        result = self.analysis_service.run_analysis(
+            listing_id=self.listing_id,
+            finance_profile_id=self.profile_id,
+            benchmarks=BenchmarkInputs(reference_date=date(2026, 5, 27)),
+            save_result=False,
+        )
+
+        policy_types = {item["policy_type"] for item in result["active_region_policies"]}
+        self.assertEqual(result["resolved_region_type"], "REGULATED")
+        self.assertEqual(
+            policy_types,
+            {"LAND_TRANSACTION_PERMISSION", "ADJUSTMENT_TARGET_AREA"},
+        )
+
+    def test_analysis_returns_relevant_policy_events(self) -> None:
+        self.policy_event_service.create_policy_event(
+            policy_type="TAX",
+            title="Multi-home tax relief sunset",
+            summary="Multi-home tax relief ends soon.",
+            detail="Detailed tax guidance",
+            effective_from="2026-05-01",
+            effective_to="2026-06-30",
+            affected_region_sido=None,
+            affected_region_sigungu=None,
+            affected_region_dong=None,
+            affected_buyer_type="NO_HOME",
+            affected_investment_purpose="INVESTMENT",
+            impact_level="HIGH",
+            calculation_supported=False,
+            action_required=True,
+            source_text="다주택자 양도세 중과 유예 종료 안내",
+            source_name="Policy Memo",
+        )
+
+        result = self.analysis_service.run_analysis(
+            listing_id=self.listing_id,
+            finance_profile_id=self.profile_id,
+            benchmarks=BenchmarkInputs(reference_date=date(2026, 5, 27)),
+            save_result=False,
+        )
+
+        self.assertEqual(len(result["relevant_policy_events"]), 1)
+        self.assertEqual(result["relevant_policy_events"][0]["title"], "Multi-home tax relief sunset")
 
     def _sale_tx(self, deal_date: str, price: int) -> dict:
         year, month, day = (int(part) for part in deal_date.split("-"))

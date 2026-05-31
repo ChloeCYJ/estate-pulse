@@ -93,6 +93,13 @@ SCHEMA_STATEMENTS = [
         interest_rate REAL,
         ltv_limit REAL,
         dsr_limit REAL,
+        home_count INTEGER DEFAULT 0,
+        owned_real_estate_value INTEGER DEFAULT 0,
+        owned_real_estate_debt INTEGER DEFAULT 0,
+        credit_loan_balance INTEGER DEFAULT 0,
+        other_loan_balance INTEGER DEFAULT 0,
+        use_manual_ltv INTEGER DEFAULT 0,
+        manual_ltv_rate REAL,
         created_at TEXT NOT NULL
     )
     """,
@@ -189,6 +196,47 @@ SCHEMA_STATEMENTS = [
         FOREIGN KEY (source_policy_import_id) REFERENCES policy_import(id) ON DELETE SET NULL
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS policy_event (
+        policy_event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        policy_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        detail TEXT NOT NULL,
+        effective_from TEXT NOT NULL,
+        effective_to TEXT,
+        affected_region_sido TEXT,
+        affected_region_sigungu TEXT,
+        affected_region_dong TEXT,
+        affected_buyer_type TEXT NOT NULL,
+        affected_investment_purpose TEXT NOT NULL,
+        impact_level TEXT NOT NULL,
+        calculation_supported INTEGER NOT NULL,
+        action_required INTEGER NOT NULL,
+        source_text TEXT NOT NULL,
+        source_name TEXT,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS policy_event_candidate (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        policy_import_id INTEGER NOT NULL,
+        policy_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        impact_level TEXT NOT NULL,
+        proposed_event_json TEXT NOT NULL,
+        confidence REAL,
+        warnings TEXT,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        reviewed_at TEXT,
+        applied_at TEXT,
+        FOREIGN KEY (policy_import_id) REFERENCES policy_import(id) ON DELETE CASCADE
+    )
+    """,
 ]
 
 
@@ -208,6 +256,7 @@ def initialize_database(database_path: Path | str) -> None:
             connection.execute(statement)
         _ensure_manual_listing_columns(connection)
         _ensure_apartment_complex_columns(connection)
+        _ensure_user_finance_profile_columns(connection)
         _ensure_analysis_result_columns(connection)
         connection.commit()
 
@@ -237,6 +286,34 @@ def fetch_all(database_path: Path | str, query: str, parameters: Sequence[Any] =
     with get_connection(database_path) as connection:
         rows = connection.execute(query, parameters).fetchall()
     return [dict(row) for row in rows]
+
+
+def _ensure_user_finance_profile_columns(connection: sqlite3.Connection) -> None:
+    existing_columns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(user_finance_profile)").fetchall()
+    }
+    if "home_count" not in existing_columns:
+        connection.execute("ALTER TABLE user_finance_profile ADD COLUMN home_count INTEGER DEFAULT 0")
+    if "owned_real_estate_value" not in existing_columns:
+        connection.execute(
+            "ALTER TABLE user_finance_profile ADD COLUMN owned_real_estate_value INTEGER DEFAULT 0"
+        )
+    if "owned_real_estate_debt" not in existing_columns:
+        connection.execute(
+            "ALTER TABLE user_finance_profile ADD COLUMN owned_real_estate_debt INTEGER DEFAULT 0"
+        )
+    if "credit_loan_balance" not in existing_columns:
+        connection.execute(
+            "ALTER TABLE user_finance_profile ADD COLUMN credit_loan_balance INTEGER DEFAULT 0"
+        )
+    if "other_loan_balance" not in existing_columns:
+        connection.execute(
+            "ALTER TABLE user_finance_profile ADD COLUMN other_loan_balance INTEGER DEFAULT 0"
+        )
+    if "use_manual_ltv" not in existing_columns:
+        connection.execute("ALTER TABLE user_finance_profile ADD COLUMN use_manual_ltv INTEGER DEFAULT 0")
+    if "manual_ltv_rate" not in existing_columns:
+        connection.execute("ALTER TABLE user_finance_profile ADD COLUMN manual_ltv_rate REAL")
 
 
 def _ensure_analysis_result_columns(connection: sqlite3.Connection) -> None:

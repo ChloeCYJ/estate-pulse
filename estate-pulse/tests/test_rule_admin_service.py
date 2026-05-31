@@ -92,6 +92,9 @@ class RuleAdminServiceTests(unittest.TestCase):
                 "id",
                 "region_scope",
                 "region_level",
+                "sido",
+                "sigungu",
+                "dong",
                 "policy_type",
                 "loan_region_type",
                 "effective_from",
@@ -99,7 +102,7 @@ class RuleAdminServiceTests(unittest.TestCase):
                 "notes",
             },
         )
-        self.assertEqual(rows[0]["policy_type"], "규제지역")
+        self.assertEqual(rows[0]["policy_type"], "규제지역(기존 상위개념)")
         self.assertEqual(rows[0]["loan_region_type"], "규제지역")
 
 

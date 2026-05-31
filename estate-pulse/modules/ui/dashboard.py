@@ -12,9 +12,10 @@ def render_dashboard_page(
     listing_repository,
     finance_repository,
     analysis_repository,
+    policy_event_service,
 ) -> None:
     st.title("Estate Pulse Dashboard")
-    st.caption("Phase 2 기준으로 최근 분석, 단지 품질, 투자 비교 결과를 빠르게 확인합니다.")
+    st.caption("Recent analysis snapshots and high-impact policy references.")
 
     complexes = complex_repository.list_all()
     listings = listing_repository.list_all()
@@ -22,81 +23,111 @@ def render_dashboard_page(
     analyses = analysis_repository.list_recent(limit=10)
 
     cols = st.columns(4)
-    cols[0].metric("단지 수", len(complexes))
-    cols[1].metric("매물 수", len(listings))
-    cols[2].metric("자금 프로필 수", len(profiles))
-    cols[3].metric("최근 분석 수", len(analyses))
+    cols[0].metric("Complexes", len(complexes))
+    cols[1].metric("Listings", len(listings))
+    cols[2].metric("Profiles", len(profiles))
+    cols[3].metric("Recent Analyses", len(analyses))
 
-    if not analyses:
-        st.info("아직 분석 결과가 없습니다. 분석 화면에서 매물을 먼저 계산해 주세요.")
+    if analyses:
+        st.subheader("Recent Analysis Results")
+        analysis_df = pd.DataFrame(analyses)[
+            [
+                "complex_name",
+                "sale_price",
+                "required_cash",
+                "shortage_cash",
+                "bargain_score",
+                "liquidity_score",
+                "investment_score",
+                "complex_grade",
+                "created_at",
+            ]
+        ].rename(
+            columns={
+                "complex_name": "Complex",
+                "sale_price": "Sale Price",
+                "required_cash": "Required Cash",
+                "shortage_cash": "Shortage",
+                "bargain_score": "Bargain Score",
+                "liquidity_score": "Liquidity",
+                "investment_score": "Investment Score",
+                "complex_grade": "Grade",
+                "created_at": "Created At",
+            }
+        )
+        for column in ["Sale Price", "Required Cash", "Shortage"]:
+            analysis_df[column] = analysis_df[column].map(format_compact_won)
+        analysis_df["Grade"] = analysis_df["Grade"].map(_complex_grade_label)
+        st.dataframe(analysis_df, use_container_width=True, hide_index=True)
+
+        top_investment_df = pd.DataFrame(analyses).sort_values(
+            by="investment_score",
+            ascending=False,
+        ).head(5)
+        st.subheader("Top Investment Scores")
+        top_view_df = top_investment_df[
+            [
+                "complex_name",
+                "investment_score",
+                "liquidity_score",
+                "bargain_score",
+                "required_cash",
+                "complex_grade",
+            ]
+        ].rename(
+            columns={
+                "complex_name": "Complex",
+                "investment_score": "Investment Score",
+                "liquidity_score": "Liquidity",
+                "bargain_score": "Bargain Score",
+                "required_cash": "Required Cash",
+                "complex_grade": "Grade",
+            }
+        )
+        top_view_df["Required Cash"] = top_view_df["Required Cash"].map(format_compact_won)
+        top_view_df["Grade"] = top_view_df["Grade"].map(_complex_grade_label)
+        st.dataframe(top_view_df, use_container_width=True, hide_index=True)
+    else:
+        st.info("No saved analyses yet.")
+
+    policy_events = policy_event_service.list_high_impact_events()
+    st.subheader("Policy Events")
+    if not policy_events:
+        st.caption("No active or future high-impact policy events.")
         return
 
-    st.subheader("최근 분석 결과")
-    analysis_df = pd.DataFrame(analyses)[
+    event_df = pd.DataFrame(policy_events)[
         [
-            "complex_name",
-            "sale_price",
-            "required_cash",
-            "shortage_cash",
-            "bargain_score",
-            "liquidity_score",
-            "investment_score",
-            "complex_grade",
-            "created_at",
+            "effective_from",
+            "effective_to",
+            "policy_type",
+            "title",
+            "impact_level",
+            "status",
+            "reference_mode",
+            "source_name",
         ]
     ].rename(
         columns={
-            "complex_name": "단지",
-            "sale_price": "매물가",
-            "required_cash": "필요 현금",
-            "shortage_cash": "부족 현금",
-            "bargain_score": "급매 점수",
-            "liquidity_score": "유동성 점수",
-            "investment_score": "투자 점수",
-            "complex_grade": "단지 등급",
-            "created_at": "분석일",
+            "effective_from": "Effective From",
+            "effective_to": "Effective To",
+            "policy_type": "Type",
+            "title": "Title",
+            "impact_level": "Impact",
+            "status": "Status",
+            "reference_mode": "Mode",
+            "source_name": "Source",
         }
     )
-    for column in ["매물가", "필요 현금", "부족 현금"]:
-        analysis_df[column] = analysis_df[column].map(format_compact_won)
-    analysis_df["단지 등급"] = analysis_df["단지 등급"].map(_complex_grade_label)
-    st.dataframe(analysis_df, use_container_width=True, hide_index=True)
-
-    top_investment_df = pd.DataFrame(analyses).sort_values(
-        by="investment_score",
-        ascending=False,
-    ).head(5)
-    st.subheader("최근 투자 점수 상위")
-    top_view_df = top_investment_df[
-        [
-            "complex_name",
-            "investment_score",
-            "liquidity_score",
-            "bargain_score",
-            "required_cash",
-            "complex_grade",
-        ]
-    ].rename(
-        columns={
-            "complex_name": "단지",
-            "investment_score": "투자 점수",
-            "liquidity_score": "유동성 점수",
-            "bargain_score": "급매 점수",
-            "required_cash": "필요 현금",
-            "complex_grade": "단지 등급",
-        }
-    )
-    top_view_df["필요 현금"] = top_view_df["필요 현금"].map(format_compact_won)
-    top_view_df["단지 등급"] = top_view_df["단지 등급"].map(_complex_grade_label)
-    st.dataframe(top_view_df, use_container_width=True, hide_index=True)
+    st.dataframe(event_df, use_container_width=True, hide_index=True)
 
 
 def _complex_grade_label(value: str | None) -> str:
     labels = {
-        "LEADER": "대장",
-        "SUB_LEADER": "준대장",
-        "NORMAL": "일반",
-        "SMALL": "나홀로",
-        "RISKY": "유동성주의",
+        "LEADER": "Leader",
+        "SUB_LEADER": "Sub Leader",
+        "NORMAL": "Normal",
+        "SMALL": "Small",
+        "RISKY": "Risky",
     }
     return labels.get(value or "", value or "-")

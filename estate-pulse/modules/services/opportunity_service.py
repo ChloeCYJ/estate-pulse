@@ -156,6 +156,9 @@ class OpportunityService:
                 "investment_score": None,
                 "complex_grade": None,
                 "complex_grade_label": None,
+                "relevant_policy_event_count": 0,
+                "relevant_policy_event_titles": "",
+                "relevant_policy_events": [],
                 "analysis_available": False,
                 "analysis_status": "분석 불가",
                 "analysis_error": str(exc),
@@ -182,6 +185,11 @@ class OpportunityService:
             "investment_score": analysis_result["investment_score"],
             "complex_grade": analysis_result["complex_grade"],
             "complex_grade_label": analysis_result["complex_grade_label"],
+            "relevant_policy_event_count": len(analysis_result["relevant_policy_events"]),
+            "relevant_policy_event_titles": ", ".join(
+                event["title"] for event in analysis_result["relevant_policy_events"][:2]
+            ),
+            "relevant_policy_events": analysis_result["relevant_policy_events"],
             "analysis_available": True,
             "analysis_status": "분석 완료",
             "analysis_error": None,

@@ -11,10 +11,11 @@ from modules.services.policy_import_service import (
     CANDIDATE_STATUS_PENDING_REVIEW,
     CANDIDATE_STATUS_REJECTED,
 )
+from modules.ui.policy_event_admin_view import render_policy_event_admin_page
 from modules.utils.money_utils import format_compact_won
 
 
-GROUP_ORDER = ("REGION_POLICY", "LOAN", "TAX", "BROKERAGE", "UNKNOWN")
+GROUP_ORDER = ("POLICY_EVENT", "REGION_POLICY", "LOAN", "TAX", "BROKERAGE", "UNKNOWN")
 DRAFT_KEY = "policy_import_draft_sections"
 
 
@@ -22,10 +23,22 @@ def render_admin_page(*, rule_admin_service, policy_import_service, complex_repo
     st.title("관리자")
     st.caption("규칙 조회, 지역 규제 상태 관리, 정책 문서 후보 생성과 검토를 처리합니다.")
 
-    loan_tab, tax_tab, brokerage_tab, region_tab, import_tab = st.tabs(
-        ["대출 규칙", "세금 규칙", "중개보수 규칙", "지역 규제 상태", "정책 가져오기"]
+    (
+        policy_event_tab,
+        loan_tab,
+        tax_tab,
+        brokerage_tab,
+        region_tab,
+        import_tab,
+    ) = st.tabs(
+        ["정책 이벤트", "대출 규칙", "세금 규칙", "중개보수 규칙", "지역 규제 상태", "정책 가져오기"]
     )
 
+    with policy_event_tab:
+        render_policy_event_admin_page(
+            rule_admin_service=rule_admin_service,
+            policy_import_service=policy_import_service,
+        )
     with loan_tab:
         _render_rule_table("대출 규칙", rule_admin_service.list_loan_rules(), "loan")
     with tax_tab:
@@ -189,6 +202,45 @@ def _render_policy_import_tab(*, policy_import_service) -> None:
 def _render_section_review(*, draft: dict, policy_import_service) -> None:
     st.subheader("문단 분류 결과")
     grouped_sections = _group_items_by_target_rule_type(draft["sections"])
+    section_type_options = [
+        "POLICY_EVENT",
+        "REGION_POLICY",
+        "LOAN",
+        "TAX",
+        "BROKERAGE",
+        "UNKNOWN",
+    ]
+
+    for section in draft["sections"]:
+        selected_key = f"section_selected_{section['section_id']}"
+        type_key = f"section_type_{section['section_id']}"
+        if selected_key not in st.session_state:
+            st.session_state[selected_key] = section["target_rule_type"] != "UNKNOWN"
+        if type_key not in st.session_state:
+            st.session_state[type_key] = section["target_rule_type"]
+
+    action_cols = st.columns(4)
+    if action_cols[0].button("전체 선택", key="policy_section_select_all"):
+        for section in draft["sections"]:
+            st.session_state[f"section_selected_{section['section_id']}"] = True
+    if action_cols[1].button("추천만 선택", key="policy_section_select_recommended"):
+        for section in draft["sections"]:
+            st.session_state[f"section_selected_{section['section_id']}"] = (
+                st.session_state.get(
+                    f"section_type_{section['section_id']}",
+                    section["target_rule_type"],
+                )
+                != "UNKNOWN"
+            )
+    if action_cols[2].button("전체 해제", key="policy_section_clear_all"):
+        for section in draft["sections"]:
+            st.session_state[f"section_selected_{section['section_id']}"] = False
+    selected_count = sum(
+        1
+        for section in draft["sections"]
+        if st.session_state.get(f"section_selected_{section['section_id']}", False)
+    )
+    action_cols[3].metric("선택 문단", f"{selected_count} / {len(draft['sections'])}")
 
     summary_rows = []
     for section in draft["sections"]:
@@ -214,7 +266,7 @@ def _render_section_review(*, draft: dict, policy_import_service) -> None:
             metadata = dict(section.get("metadata") or {})
             with st.expander(
                 f"{section['section_id']} | {_target_rule_type_label(section['target_rule_type'])}",
-                expanded=False,
+                expanded=section["target_rule_type"] == "POLICY_EVENT",
             ):
                 st.write(section["source_text"])
                 if metadata.get("review_state") == "REVIEW_REQUIRED":
@@ -225,16 +277,22 @@ def _render_section_review(*, draft: dict, policy_import_service) -> None:
                 cols = st.columns(2)
                 cols[0].selectbox(
                     "분류 유형 수정",
-                    ["REGION_POLICY", "LOAN", "TAX", "BROKERAGE", "UNKNOWN"],
-                    index=["REGION_POLICY", "LOAN", "TAX", "BROKERAGE", "UNKNOWN"].index(
-                        section["target_rule_type"]
+                    section_type_options,
+                    index=section_type_options.index(
+                        st.session_state.get(
+                            f"section_type_{section['section_id']}",
+                            section["target_rule_type"],
+                        )
                     ),
                     format_func=_target_rule_type_label,
                     key=f"section_type_{section['section_id']}",
                 )
                 cols[1].checkbox(
                     "후보 생성에 포함",
-                    value=section["target_rule_type"] != "UNKNOWN",
+                    value=st.session_state.get(
+                        f"section_selected_{section['section_id']}",
+                        section["target_rule_type"] != "UNKNOWN",
+                    ),
                     key=f"section_selected_{section['section_id']}",
                 )
                 if section["target_rule_type"] == "REGION_POLICY":
@@ -618,6 +676,7 @@ def _group_items_by_target_rule_type(items: list[dict]) -> dict[str, list[dict]]
 
 def _group_section_title(target_rule_type: str) -> str:
     return {
+        "POLICY_EVENT": "정책 이벤트 후보",
         "REGION_POLICY": "지역 규제 후보",
         "LOAN": "대출 규칙 후보",
         "TAX": "세금 규칙 후보",
@@ -644,6 +703,7 @@ def _candidate_status_label(value: str) -> str:
 
 def _target_rule_type_label(value: str) -> str:
     return {
+        "POLICY_EVENT": "정책 이벤트",
         "INTEGRATED": "통합 문서",
         "REGION_POLICY": "지역 규제",
         "LOAN": "대출",
@@ -655,9 +715,11 @@ def _target_rule_type_label(value: str) -> str:
 
 def _region_policy_type_label(value: str) -> str:
     return {
-        "REGULATED_AREA": "규제지역",
+        "REGULATED_AREA": "규제지역(기존 상위개념)",
         "NON_REGULATED_AREA": "비규제지역",
         "LAND_TRANSACTION_PERMISSION": "토지거래허가구역",
+        "SPECULATION_OVERHEATED_DISTRICT": "투기과열지구",
+        "ADJUSTMENT_TARGET_AREA": "조정대상지역",
     }.get(value, value)
 
 
@@ -789,6 +851,9 @@ def _region_policy_column_labels() -> dict[str, str]:
         "id": "ID",
         "region_scope": "적용 지역",
         "region_level": "지역 레벨",
+        "sido": "시도",
+        "sigungu": "시군구",
+        "dong": "동",
         "policy_type": "정책 유형",
         "loan_region_type": "대출 지역 판정",
         "effective_from": "적용 시작일",

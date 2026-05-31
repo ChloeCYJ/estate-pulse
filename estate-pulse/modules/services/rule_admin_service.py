@@ -4,9 +4,16 @@ from modules.utils.money_utils import format_won
 
 
 class RuleAdminService:
-    def __init__(self, *, rule_runtime_service, region_policy_service=None) -> None:
+    def __init__(
+        self,
+        *,
+        rule_runtime_service,
+        region_policy_service=None,
+        policy_event_service=None,
+    ) -> None:
         self.rule_runtime_service = rule_runtime_service
         self.region_policy_service = region_policy_service
+        self.policy_event_service = policy_event_service
 
     def list_loan_rules(self) -> list[dict[str, str]]:
         rows: list[dict[str, str]] = []
@@ -86,6 +93,9 @@ class RuleAdminService:
                     "id": str(item["id"]),
                     "region_scope": str(item["region_scope"]),
                     "region_level": _region_level_label(str(item["region_level"])),
+                    "sido": str(item["sido"]),
+                    "sigungu": str(item.get("sigungu") or "-"),
+                    "dong": str(item.get("dong") or "-"),
                     "policy_type": _policy_type_label(str(item["policy_type"])),
                     "loan_region_type": _region_type_label(
                         str(item["loan_region_type"] or "NON_REGULATED")
@@ -118,6 +128,66 @@ class RuleAdminService:
         if self.region_policy_service is None:
             raise ValueError("Region policy service is unavailable.")
         self.region_policy_service.delete_region_policy_status(status_id)
+
+    def list_policy_event_types(self) -> list[str]:
+        if self.policy_event_service is None:
+            return []
+        return self.policy_event_service.list_policy_types()
+
+    def list_policy_event_statuses(self) -> list[str]:
+        if self.policy_event_service is None:
+            return []
+        return self.policy_event_service.list_statuses()
+
+    def list_policy_event_impact_levels(self) -> list[str]:
+        if self.policy_event_service is None:
+            return []
+        return self.policy_event_service.list_impact_levels()
+
+    def list_policy_event_buyer_types(self) -> list[str]:
+        if self.policy_event_service is None:
+            return []
+        return self.policy_event_service.list_buyer_types()
+
+    def list_policy_event_investment_purposes(self) -> list[str]:
+        if self.policy_event_service is None:
+            return []
+        return self.policy_event_service.list_investment_purposes()
+
+    def create_policy_event(self, **kwargs) -> int:
+        if self.policy_event_service is None:
+            raise ValueError("Policy event service is unavailable.")
+        return self.policy_event_service.create_policy_event(**kwargs)
+
+    def update_policy_event(self, policy_event_id: int, **kwargs) -> None:
+        if self.policy_event_service is None:
+            raise ValueError("Policy event service is unavailable.")
+        self.policy_event_service.update_policy_event(policy_event_id, **kwargs)
+
+    def expire_policy_event(self, policy_event_id: int, *, expired_on: str | None = None) -> None:
+        if self.policy_event_service is None:
+            raise ValueError("Policy event service is unavailable.")
+        self.policy_event_service.expire_policy_event(policy_event_id, expired_on=expired_on)
+
+    def get_policy_event(self, policy_event_id: int) -> dict | None:
+        if self.policy_event_service is None:
+            return None
+        return self.policy_event_service.get_policy_event(policy_event_id)
+
+    def list_policy_events(
+        self,
+        *,
+        policy_type: str | None = None,
+        status: str | None = None,
+        impact_level: str | None = None,
+    ) -> list[dict]:
+        if self.policy_event_service is None:
+            return []
+        return self.policy_event_service.list_policy_events(
+            policy_type=policy_type,
+            status=status,
+            impact_level=impact_level,
+        )
 
 
 def _format_ratio(value: float) -> str:
@@ -192,7 +262,9 @@ def _region_level_label(value: str) -> str:
 
 def _policy_type_label(value: str) -> str:
     return {
-        "REGULATED_AREA": "규제지역",
+        "REGULATED_AREA": "규제지역(기존 상위개념)",
         "NON_REGULATED_AREA": "비규제지역",
         "LAND_TRANSACTION_PERMISSION": "토지거래허가구역",
+        "SPECULATION_OVERHEATED_DISTRICT": "투기과열지구",
+        "ADJUSTMENT_TARGET_AREA": "조정대상지역",
     }.get(value, value)
