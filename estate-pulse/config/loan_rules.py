@@ -35,132 +35,120 @@ class LoanRule:
         return sale_price <= self.house_price_max
 
 
+RULE_VERSION = "2026.05-v2"
+RULE_EFFECTIVE_FROM = "2026-05-01"
+
+HOUSE_PRICE_BRACKETS: tuple[tuple[int, int | None], ...] = (
+    (0, 899_999_999),
+    (900_000_000, 1_499_999_999),
+    (1_500_000_000, 2_499_999_999),
+    (2_500_000_000, None),
+)
+
+def _build_rules(
+    *,
+    region_type: str,
+    buyer_type: str,
+    purpose: str,
+    ltv_rates: tuple[float, float, float, float],
+    dsr_rate: float,
+    max_loan_amounts: tuple[int | None, int | None, int | None, int | None],
+    description_prefix: str,
+) -> list[LoanRule]:
+    rules: list[LoanRule] = []
+    for index, (house_price_min, house_price_max) in enumerate(HOUSE_PRICE_BRACKETS):
+        rules.append(
+            LoanRule(
+                rule_version=RULE_VERSION,
+                effective_from=RULE_EFFECTIVE_FROM,
+                effective_to=None,
+                region_type=region_type,
+                buyer_type=buyer_type,
+                purpose=purpose,
+                house_price_min=house_price_min,
+                house_price_max=house_price_max,
+                ltv_rate=ltv_rates[index],
+                dsr_rate=dsr_rate,
+                max_loan_amount=max_loan_amounts[index],
+                description=f"{description_prefix} / {_price_band_label(house_price_min, house_price_max)}",
+            )
+        )
+    return rules
+
+
+def _price_band_label(house_price_min: int, house_price_max: int | None) -> str:
+    if house_price_max is None:
+        return "over 2.5B"
+    if house_price_max <= 899_999_999:
+        return "under 900M"
+    if house_price_max <= 1_499_999_999:
+        return "900M to 1.5B"
+    return "1.5B to 2.5B"
+
+
 LOAN_RULES: list[LoanRule] = [
-    LoanRule(
-        rule_version="2026.05-v1",
-        effective_from="2026-01-01",
-        effective_to=None,
+    *_build_rules(
         region_type="NON_REGULATED",
         buyer_type="NO_HOME",
         purpose="OWNER_OCCUPIED",
-        house_price_min=0,
-        house_price_max=900_000_000,
-        ltv_rate=0.70,
+        ltv_rates=(0.70, 0.60, 0.50, 0.40),
         dsr_rate=0.40,
-        max_loan_amount=None,
-        description="비규제지역 무주택 실거주, 9억 이하",
+        max_loan_amounts=(None, None, None, None),
+        description_prefix="Non-regulated / no-home / owner-occupied",
     ),
-    LoanRule(
-        rule_version="2026.05-v1",
-        effective_from="2026-01-01",
-        effective_to=None,
-        region_type="NON_REGULATED",
-        buyer_type="NO_HOME",
-        purpose="OWNER_OCCUPIED",
-        house_price_min=900_000_001,
-        house_price_max=None,
-        ltv_rate=0.60,
-        dsr_rate=0.40,
-        max_loan_amount=None,
-        description="비규제지역 무주택 실거주, 9억 초과",
-    ),
-    LoanRule(
-        rule_version="2026.05-v1",
-        effective_from="2026-01-01",
-        effective_to=None,
+    *_build_rules(
         region_type="NON_REGULATED",
         buyer_type="NO_HOME",
         purpose="INVESTMENT",
-        house_price_min=0,
-        house_price_max=900_000_000,
-        ltv_rate=0.70,
+        ltv_rates=(0.70, 0.60, 0.50, 0.40),
         dsr_rate=0.40,
-        max_loan_amount=None,
-        description="비규제지역 무주택 투자, 9억 이하",
+        max_loan_amounts=(None, None, 1_000_000_000, 1_200_000_000),
+        description_prefix="Non-regulated / no-home / investment",
     ),
-    LoanRule(
-        rule_version="2026.05-v1",
-        effective_from="2026-01-01",
-        effective_to=None,
-        region_type="NON_REGULATED",
-        buyer_type="NO_HOME",
-        purpose="INVESTMENT",
-        house_price_min=900_000_001,
-        house_price_max=None,
-        ltv_rate=0.60,
-        dsr_rate=0.40,
-        max_loan_amount=None,
-        description="비규제지역 무주택 투자, 9억 초과",
-    ),
-    LoanRule(
-        rule_version="2026.05-v1",
-        effective_from="2026-01-01",
-        effective_to=None,
+    *_build_rules(
         region_type="REGULATED",
         buyer_type="NO_HOME",
         purpose="OWNER_OCCUPIED",
-        house_price_min=0,
-        house_price_max=None,
-        ltv_rate=0.50,
+        ltv_rates=(0.50, 0.40, 0.30, 0.20),
         dsr_rate=0.40,
-        max_loan_amount=600_000_000,
-        description="규제지역 무주택 실거주",
+        max_loan_amounts=(600_000_000, 600_000_000, 600_000_000, 600_000_000),
+        description_prefix="Regulated / no-home / owner-occupied",
     ),
-    LoanRule(
-        rule_version="2026.05-v1",
-        effective_from="2026-01-01",
-        effective_to=None,
+    *_build_rules(
         region_type="REGULATED",
         buyer_type="NO_HOME",
         purpose="INVESTMENT",
-        house_price_min=0,
-        house_price_max=None,
-        ltv_rate=0.40,
+        ltv_rates=(0.40, 0.30, 0.20, 0.10),
         dsr_rate=0.40,
-        max_loan_amount=500_000_000,
-        description="규제지역 무주택 투자",
+        max_loan_amounts=(500_000_000, 500_000_000, 500_000_000, 500_000_000),
+        description_prefix="Regulated / no-home / investment",
     ),
-    LoanRule(
-        rule_version="2026.05-v1",
-        effective_from="2026-01-01",
-        effective_to=None,
+    *_build_rules(
         region_type="REGULATED",
         buyer_type="ONE_HOME",
         purpose="OWNER_OCCUPIED",
-        house_price_min=0,
-        house_price_max=None,
-        ltv_rate=0.40,
+        ltv_rates=(0.40, 0.30, 0.20, 0.10),
         dsr_rate=0.40,
-        max_loan_amount=500_000_000,
-        description="규제지역 1주택 실거주",
+        max_loan_amounts=(500_000_000, 500_000_000, 500_000_000, 500_000_000),
+        description_prefix="Regulated / one-home / owner-occupied",
     ),
-    LoanRule(
-        rule_version="2026.05-v1",
-        effective_from="2026-01-01",
-        effective_to=None,
+    *_build_rules(
         region_type="REGULATED",
         buyer_type="ONE_HOME",
         purpose="INVESTMENT",
-        house_price_min=0,
-        house_price_max=None,
-        ltv_rate=0.30,
+        ltv_rates=(0.30, 0.20, 0.10, 0.00),
         dsr_rate=0.40,
-        max_loan_amount=400_000_000,
-        description="규제지역 1주택 투자",
+        max_loan_amounts=(400_000_000, 400_000_000, 400_000_000, 0),
+        description_prefix="Regulated / one-home / investment",
     ),
-    LoanRule(
-        rule_version="2026.05-v1",
-        effective_from="2026-01-01",
-        effective_to=None,
+    *_build_rules(
         region_type="REGULATED",
         buyer_type="MULTI_HOME",
         purpose="INVESTMENT",
-        house_price_min=0,
-        house_price_max=None,
-        ltv_rate=0.00,
+        ltv_rates=(0.00, 0.00, 0.00, 0.00),
         dsr_rate=0.40,
-        max_loan_amount=0,
-        description="규제지역 다주택 투자",
+        max_loan_amounts=(0, 0, 0, 0),
+        description_prefix="Regulated / multi-home / investment",
     ),
 ]
 

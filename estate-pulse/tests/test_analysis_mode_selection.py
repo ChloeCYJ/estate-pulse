@@ -143,8 +143,8 @@ class AnalysisModeSelectionTests(unittest.TestCase):
 
         self.assertEqual(result["primary_user_mode"], "OWNER_OCCUPIED")
         self.assertEqual(result["investment_type"], "OWNER_OCCUPIED")
-        self.assertEqual(result["required_cash"], 288_300_000)
-        self.assertEqual(result["shortage_cash"], -11_700_000)
+        self.assertEqual(result["required_cash"], 389_100_000)
+        self.assertEqual(result["shortage_cash"], 89_100_000)
         self.assertIsNotNone(result["monthly_repayment"])
 
     def _sale_tx(self, deal_date: str, price: int) -> dict:

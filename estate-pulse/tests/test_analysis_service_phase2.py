@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from datetime import date
 import unittest
 
 from config.settings import AppSettings
@@ -11,9 +11,11 @@ from modules.repositories.complex_repository import ApartmentComplexRepository
 from modules.repositories.database import initialize_database
 from modules.repositories.finance_profile_repository import UserFinanceProfileRepository
 from modules.repositories.listing_repository import ManualListingRepository
+from modules.repositories.region_policy_repository import RegionPolicyRepository
 from modules.repositories.rent_transaction_repository import RentTransactionRepository
 from modules.repositories.sale_transaction_repository import SaleTransactionRepository
 from modules.services.analysis_service import AnalysisService, BenchmarkInputs
+from modules.services.region_policy_service import RegionPolicyService
 from modules.utils.date_utils import utc_now_iso
 
 
@@ -40,6 +42,10 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
         self.analysis_repository = AnalysisRepository(self.database_path)
         self.sale_repository = SaleTransactionRepository(self.database_path)
         self.rent_repository = RentTransactionRepository(self.database_path)
+        self.region_policy_repository = RegionPolicyRepository(self.database_path)
+        self.region_policy_service = RegionPolicyService(
+            region_policy_repository=self.region_policy_repository,
+        )
         self.analysis_service = AnalysisService(
             settings=self.settings,
             listing_repository=self.listing_repository,
@@ -47,10 +53,12 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
             analysis_repository=self.analysis_repository,
             sale_transaction_repository=self.sale_repository,
             rent_transaction_repository=self.rent_repository,
+            complex_repository=self.complex_repository,
+            region_policy_service=self.region_policy_service,
         )
 
         self.complex_id = self.complex_repository.create(
-            name="테스트단지",
+            name="Test Complex",
             sido="서울",
             sigungu="서초구",
             dong="반포동",
@@ -113,7 +121,7 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
         self.assertEqual(result["market_metrics"]["sale_avg_6m"], 980_000_000)
         self.assertEqual(result["derived_inputs"]["one_year_high_price"], 1_010_000_000)
         self.assertEqual(result["bargain_score"], 55)
-        self.assertEqual(result["sources"]["recent_avg_price"], "자동 계산 · 최근 6개월 평균")
+        self.assertEqual(result["region_policy_source"], "default")
 
     def test_jeonse_ratio_fallback_uses_rent_transactions(self) -> None:
         result = self.analysis_service.run_analysis(
@@ -124,14 +132,37 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(result["expected_jeonse_price"], 540_000_000)
-        self.assertEqual(result["sources"]["expected_jeonse_price"], "자동 계산 · 최근 전세 거래 평균")
         self.assertAlmostEqual(result["jeonse_ratio"], 60.0)
+
+    def test_region_policy_auto_resolves_loan_region_type(self) -> None:
+        self.region_policy_service.create_region_policy_status(
+            region_level="SIGUNGU",
+            sido="서울",
+            sigungu="서초구",
+            dong=None,
+            policy_type="REGULATED_AREA",
+            effective_from="2026-05-01",
+            effective_to=None,
+            notes="test",
+        )
+
+        result = self.analysis_service.run_analysis(
+            listing_id=self.listing_id,
+            finance_profile_id=self.profile_id,
+            benchmarks=BenchmarkInputs(reference_date=date(2026, 5, 27)),
+            save_result=False,
+        )
+
+        self.assertEqual(result["resolved_region_type"], "REGULATED")
+        self.assertEqual(result["region_policy_source"], "region_policy_status")
+        self.assertEqual(result["loan_terms"]["region_type"], "REGULATED")
+        self.assertEqual(result["expected_loan_amount"], 270_000_000)
 
     def _sale_tx(self, deal_date: str, price: int) -> dict:
         year, month, day = (int(part) for part in deal_date.split("-"))
         return {
             "complex_id": self.complex_id,
-            "complex_name": "테스트단지",
+            "complex_name": "Test Complex",
             "area_m2": 84.9,
             "deal_year": year,
             "deal_month": month,
@@ -146,7 +177,7 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
         year, month, day = (int(part) for part in deal_date.split("-"))
         return {
             "complex_id": self.complex_id,
-            "complex_name": "테스트단지",
+            "complex_name": "Test Complex",
             "area_m2": 84.9,
             "deal_year": year,
             "deal_month": month,

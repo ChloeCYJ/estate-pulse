@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from modules.repositories.database import execute, fetch_all
+from modules.repositories.database import execute, fetch_all, fetch_one
 from modules.utils.date_utils import utc_now_iso
 
 
@@ -22,6 +22,17 @@ class AnalysisRepository:
                 current_required_cash,
                 future_required_cash,
                 monthly_cash_flow,
+                acquisition_tax,
+                local_education_tax,
+                brokerage_fee,
+                legal_fee,
+                reserve_cost,
+                total_transaction_cost,
+                applied_tax_rule_version,
+                applied_brokerage_rule_version,
+                liquidity_score,
+                investment_score,
+                complex_grade,
                 jeonse_ratio,
                 discount_vs_recent_avg,
                 drop_from_high,
@@ -33,7 +44,7 @@ class AnalysisRepository:
                 summary,
                 created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 payload["listing_id"],
@@ -43,6 +54,17 @@ class AnalysisRepository:
                 payload.get("current_required_cash"),
                 payload.get("future_required_cash"),
                 payload.get("monthly_cash_flow"),
+                payload.get("acquisition_tax"),
+                payload.get("local_education_tax"),
+                payload.get("brokerage_fee"),
+                payload.get("legal_fee"),
+                payload.get("reserve_cost"),
+                payload.get("total_transaction_cost"),
+                payload.get("applied_tax_rule_version"),
+                payload.get("applied_brokerage_rule_version"),
+                payload.get("liquidity_score"),
+                payload.get("investment_score"),
+                payload.get("complex_grade"),
                 payload["jeonse_ratio"],
                 payload["discount_vs_recent_avg"],
                 payload["drop_from_high"],
@@ -69,3 +91,45 @@ class AnalysisRepository:
             """,
             (limit,),
         )
+
+    def get_latest_by_listing(self, listing_id: int) -> dict | None:
+        return fetch_one(
+            self.database_path,
+            """
+            SELECT *
+            FROM analysis_result
+            WHERE listing_id = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """,
+            (listing_id,),
+        )
+
+    def get_latest_created_at_by_listing(self, listing_id: int) -> str | None:
+        rows = fetch_all(
+            self.database_path,
+            """
+            SELECT created_at
+            FROM analysis_result
+            WHERE listing_id = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """,
+            (listing_id,),
+        )
+        return rows[0]["created_at"] if rows else None
+
+    def get_latest_created_at_by_complex(self, complex_id: int) -> str | None:
+        rows = fetch_all(
+            self.database_path,
+            """
+            SELECT ar.created_at
+            FROM analysis_result ar
+            JOIN manual_listing ml ON ml.id = ar.listing_id
+            WHERE ml.complex_id = ?
+            ORDER BY ar.created_at DESC, ar.id DESC
+            LIMIT 1
+            """,
+            (complex_id,),
+        )
+        return rows[0]["created_at"] if rows else None

@@ -86,3 +86,16 @@
 - Only implement the requested scope.
 - Do not overwrite README.md unless explicitly instructed.
 - Keep changes minimal and localized.
+
+## Protected Paths
+
+Never modify, restore, delete, compile, or inspect:
+
+- .venv/
+- .git/
+- **pycache**/
+- \*.pyc
+- .env
+- \*.db
+
+These are outside the implementation scope.

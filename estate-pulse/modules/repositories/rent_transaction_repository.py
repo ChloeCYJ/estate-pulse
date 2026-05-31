@@ -80,3 +80,15 @@ class RentTransactionRepository:
             f"DELETE FROM rent_transaction WHERE complex_id IN ({placeholders})",
             tuple(complex_ids),
         )
+
+    def list_all(self) -> list[dict]:
+        return fetch_all(
+            self.database_path,
+            """
+            SELECT
+                *,
+                printf('%04d-%02d-%02d', deal_year, deal_month, deal_day) AS deal_date
+            FROM rent_transaction
+            ORDER BY deal_year ASC, deal_month ASC, deal_day ASC, id ASC
+            """,
+        )

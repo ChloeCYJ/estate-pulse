@@ -5,6 +5,7 @@ from datetime import date
 
 from config.settings import AppSettings
 from modules.analyzers.bargain_analyzer import calculate_bargain_score
+from modules.analyzers.brokerage_analyzer import calculate_brokerage_breakdown
 from modules.analyzers.cash_flow_analyzer import (
     calculate_acquisition_cost_total,
     calculate_jeonse_ratio,
@@ -13,12 +14,9 @@ from modules.analyzers.cash_flow_analyzer import (
 from modules.analyzers.investment_analyzer import calculate_investment_metrics
 from modules.analyzers.loan_analyzer import calculate_loan_terms
 from modules.analyzers.owner_occupied_analyzer import calculate_owner_occupied_metrics
+from modules.analyzers.ranking_analyzer import calculate_overall_investment_score
 from modules.analyzers.risk_analyzer import summarize_risk
-from modules.analyzers.tax_analyzer import (
-    calculate_acquisition_tax,
-    calculate_brokerage_fee,
-    calculate_contingency_fee,
-)
+from modules.analyzers.tax_analyzer import calculate_tax_breakdown
 from modules.analyzers.transaction_analyzer import (
     calculate_latest_rent_deposit_average,
     calculate_one_year_high_sale_price,
@@ -27,11 +25,6 @@ from modules.analyzers.transaction_analyzer import (
     calculate_recent_3_month_sale_average,
     calculate_recent_6_month_sale_average,
 )
-from modules.repositories.analysis_repository import AnalysisRepository
-from modules.repositories.finance_profile_repository import UserFinanceProfileRepository
-from modules.repositories.listing_repository import ManualListingRepository
-from modules.repositories.rent_transaction_repository import RentTransactionRepository
-from modules.repositories.sale_transaction_repository import SaleTransactionRepository
 from modules.services.report_service import build_analysis_summary
 
 OWNER_OCCUPIED = "OWNER_OCCUPIED"
@@ -47,9 +40,16 @@ class BenchmarkInputs:
     expected_jeonse_price_override: int | None = None
     analysis_mode: str | None = None
     reference_date: date | None = None
-    region_type: str = "NON_REGULATED"
+    region_type: str | None = None
     buyer_type: str = "NO_HOME"
     purpose: str = "INVESTMENT"
+    tax_rule_version: str | None = None
+    brokerage_rule_version: str | None = None
+    acquisition_tax_override: int | None = None
+    local_education_tax_override: int | None = None
+    brokerage_fee_override: int | None = None
+    legal_fee_override: int | None = None
+    reserve_cost_override: int | None = None
 
 
 class AnalysisService:
@@ -57,11 +57,15 @@ class AnalysisService:
         self,
         *,
         settings: AppSettings,
-        listing_repository: ManualListingRepository,
-        finance_repository: UserFinanceProfileRepository,
-        analysis_repository: AnalysisRepository,
-        sale_transaction_repository: SaleTransactionRepository,
-        rent_transaction_repository: RentTransactionRepository,
+        listing_repository,
+        finance_repository,
+        analysis_repository,
+        sale_transaction_repository,
+        rent_transaction_repository,
+        market_scoring_service=None,
+        rule_runtime_service=None,
+        complex_repository=None,
+        region_policy_service=None,
     ) -> None:
         self.settings = settings
         self.listing_repository = listing_repository
@@ -69,6 +73,10 @@ class AnalysisService:
         self.analysis_repository = analysis_repository
         self.sale_transaction_repository = sale_transaction_repository
         self.rent_transaction_repository = rent_transaction_repository
+        self.market_scoring_service = market_scoring_service
+        self.rule_runtime_service = rule_runtime_service
+        self.complex_repository = complex_repository
+        self.region_policy_service = region_policy_service
 
     def run_analysis(
         self,
@@ -82,14 +90,18 @@ class AnalysisService:
         finance_profile = self.finance_repository.get(finance_profile_id)
 
         if not listing:
-            raise ValueError("매물을 찾을 수 없습니다.")
+            raise ValueError("Listing not found.")
         if not finance_profile:
-            raise ValueError("자금 프로필을 찾을 수 없습니다.")
+            raise ValueError("Finance profile not found.")
 
         stored_investment_type = (
-            listing.get("effective_investment_type") or listing.get("investment_type") or OWNER_OCCUPIED
+            listing.get("effective_investment_type")
+            or listing.get("investment_type")
+            or OWNER_OCCUPIED
         )
-        primary_user_mode = benchmarks.analysis_mode or _to_primary_user_mode(stored_investment_type)
+        primary_user_mode = benchmarks.analysis_mode or _to_primary_user_mode(
+            stored_investment_type
+        )
         investment_type = _resolve_analysis_investment_type(
             stored_investment_type=stored_investment_type,
             primary_user_mode=primary_user_mode,
@@ -100,32 +112,72 @@ class AnalysisService:
             reference_date=benchmarks.reference_date,
         )
 
+        region_context = self._resolve_region_context(
+            listing=listing,
+            manual_region_type=benchmarks.region_type,
+            reference_date=benchmarks.reference_date,
+        )
+
+        active_loan_rules = (
+            self.rule_runtime_service.get_active_loan_rules()
+            if self.rule_runtime_service is not None
+            else None
+        )
         loan_terms = calculate_loan_terms(
             sale_price=listing["sale_price"],
-            region_type=benchmarks.region_type,
+            region_type=region_context["region_type"],
             buyer_type=benchmarks.buyer_type,
             purpose=OWNER_OCCUPIED if primary_user_mode == OWNER_OCCUPIED else benchmarks.purpose,
             reference_date=benchmarks.reference_date,
             ltv_rate_override=benchmarks.ltv_rate_override,
             final_loan_amount_override=benchmarks.expected_loan_amount,
+            annual_income=finance_profile.get("annual_income"),
+            existing_debt=int(finance_profile.get("existing_debt") or 0),
+            annual_interest_rate=finance_profile.get("interest_rate"),
+            rules=active_loan_rules,
         )
         expected_loan_amount = int(loan_terms["final_loan_amount"])
 
-        acquisition_tax = calculate_acquisition_tax(
-            listing["sale_price"], self.settings.acquisition_tax_rate
+        active_tax_rule = (
+            self.rule_runtime_service.get_active_tax_rule(
+                rule_version=benchmarks.tax_rule_version,
+                reference_date=benchmarks.reference_date,
+            )
+            if self.rule_runtime_service is not None
+            else None
         )
-        brokerage_fee = calculate_brokerage_fee(
-            listing["sale_price"], self.settings.brokerage_fee_rate
+        tax_breakdown = calculate_tax_breakdown(
+            sale_price=int(listing["sale_price"]),
+            rule_version=benchmarks.tax_rule_version,
+            rule=active_tax_rule,
+            acquisition_tax_override=benchmarks.acquisition_tax_override,
+            local_education_tax_override=benchmarks.local_education_tax_override,
         )
-        contingency_fee = calculate_contingency_fee(
-            listing["sale_price"], self.settings.contingency_rate
+        active_brokerage_rule = (
+            self.rule_runtime_service.get_active_brokerage_rule(
+                rule_version=benchmarks.brokerage_rule_version,
+                reference_date=benchmarks.reference_date,
+            )
+            if self.rule_runtime_service is not None
+            else None
+        )
+        brokerage_breakdown = calculate_brokerage_breakdown(
+            sale_price=int(listing["sale_price"]),
+            rule_version=benchmarks.brokerage_rule_version,
+            rule=active_brokerage_rule,
+            brokerage_fee_override=benchmarks.brokerage_fee_override,
+            legal_fee_override=benchmarks.legal_fee_override,
+            reserve_cost_override=benchmarks.reserve_cost_override,
+        )
+        total_transaction_cost = (
+            tax_breakdown["total_tax"] + brokerage_breakdown["total_brokerage_cost"]
         )
         acquisition_cost_total = calculate_acquisition_cost_total(
-            acquisition_tax=acquisition_tax,
-            brokerage_fee=brokerage_fee,
-            legal_fee=self.settings.legal_fee_fixed,
+            acquisition_tax=tax_breakdown["acquisition_tax"] + tax_breakdown["local_education_tax"],
+            brokerage_fee=brokerage_breakdown["brokerage_fee"],
+            legal_fee=brokerage_breakdown["legal_fee"],
             repair_cost=benchmarks.repair_cost,
-            contingency_fee=contingency_fee,
+            contingency_fee=brokerage_breakdown["reserve_cost"],
         )
 
         if primary_user_mode == OWNER_OCCUPIED:
@@ -175,11 +227,26 @@ class AnalysisService:
             required_cash=required_cash,
             user_cash=finance_profile["cash_amount"],
         )
+        complex_profile = self._get_complex_profile(
+            complex_id=int(listing["complex_id"]),
+            reference_date=benchmarks.reference_date,
+        )
+        investment_score_result = calculate_overall_investment_score(
+            bargain_score=int(bargain_result["score"]),
+            liquidity_score=int(complex_profile["liquidity_score"]),
+            complex_grade=str(complex_profile["complex_grade"]),
+            required_cash=required_cash,
+            sale_price=int(listing["sale_price"]),
+            shortage_cash=shortage_cash,
+        )
         risks = summarize_risk(
             shortage_cash=shortage_cash,
             jeonse_ratio=jeonse_ratio if primary_user_mode != OWNER_OCCUPIED else 0.0,
         )
-        decision = _build_decision(primary_user_mode=primary_user_mode, shortage_cash=shortage_cash)
+        decision = _build_decision(
+            primary_user_mode=primary_user_mode,
+            shortage_cash=shortage_cash,
+        )
         summary = build_analysis_summary(
             primary_user_mode=primary_user_mode,
             complex_name=listing["complex_name"],
@@ -196,6 +263,9 @@ class AnalysisService:
             gap_amount=gap_amount,
             estimated_investment_efficiency=estimated_investment_efficiency,
             jeonse_ratio=jeonse_ratio,
+            liquidity_score=complex_profile["liquidity_score"],
+            complex_grade_label=complex_profile["complex_grade_label"],
+            investment_score=investment_score_result["investment_score"],
         )
 
         result = {
@@ -208,6 +278,9 @@ class AnalysisService:
             "expected_loan_amount": expected_loan_amount,
             "loan_rule_version": loan_terms["rule_version"],
             "loan_terms": loan_terms,
+            "resolved_region_type": region_context["region_type"],
+            "region_policy_source": region_context["source"],
+            "active_region_policies": region_context["active_policies"],
             "required_cash": required_cash,
             "shortage_cash": shortage_cash,
             "current_required_cash": current_required_cash,
@@ -237,17 +310,34 @@ class AnalysisService:
                 "expected_monthly_rent": int(listing.get("expected_monthly_rent") or 0),
             },
             "costs": {
-                "acquisition_tax": acquisition_tax,
-                "brokerage_fee": brokerage_fee,
-                "legal_fee": self.settings.legal_fee_fixed,
+                "acquisition_tax": tax_breakdown["acquisition_tax"],
+                "local_education_tax": tax_breakdown["local_education_tax"],
+                "brokerage_fee": brokerage_breakdown["brokerage_fee"],
+                "legal_fee": brokerage_breakdown["legal_fee"],
                 "repair_cost": benchmarks.repair_cost,
-                "contingency_fee": contingency_fee,
+                "reserve_cost": brokerage_breakdown["reserve_cost"],
+                "total_transaction_cost": total_transaction_cost,
+                "total_acquisition_cost": acquisition_cost_total,
             },
+            "applied_tax_rule_version": tax_breakdown["applied_tax_rule_version"],
+            "applied_brokerage_rule_version": brokerage_breakdown[
+                "applied_brokerage_rule_version"
+            ],
             "market_metrics": market_context["market_metrics"],
             "derived_inputs": market_context["derived_inputs"],
             "sale_history": market_context["sale_history"],
             "rent_history": market_context["rent_history"],
             "sources": market_context["sources"],
+            "liquidity_score": complex_profile["liquidity_score"],
+            "liquidity_label": complex_profile["liquidity_label"],
+            "complex_grade": complex_profile["complex_grade"],
+            "complex_grade_label": complex_profile["complex_grade_label"],
+            "complex_profile": complex_profile,
+            "investment_score": investment_score_result["investment_score"],
+            "required_cash_efficiency_score": investment_score_result[
+                "required_cash_efficiency_score"
+            ],
+            "investment_score_rule_version": investment_score_result["rule_version"],
         }
 
         if save_result:
@@ -260,6 +350,19 @@ class AnalysisService:
                     "current_required_cash": current_required_cash,
                     "future_required_cash": future_required_cash,
                     "monthly_cash_flow": monthly_cash_flow,
+                    "acquisition_tax": tax_breakdown["acquisition_tax"],
+                    "local_education_tax": tax_breakdown["local_education_tax"],
+                    "brokerage_fee": brokerage_breakdown["brokerage_fee"],
+                    "legal_fee": brokerage_breakdown["legal_fee"],
+                    "reserve_cost": brokerage_breakdown["reserve_cost"],
+                    "total_transaction_cost": total_transaction_cost,
+                    "applied_tax_rule_version": tax_breakdown["applied_tax_rule_version"],
+                    "applied_brokerage_rule_version": brokerage_breakdown[
+                        "applied_brokerage_rule_version"
+                    ],
+                    "liquidity_score": complex_profile["liquidity_score"],
+                    "investment_score": investment_score_result["investment_score"],
+                    "complex_grade": complex_profile["complex_grade"],
                     "jeonse_ratio": jeonse_ratio,
                     "discount_vs_recent_avg": bargain_result["discount_rate"],
                     "drop_from_high": bargain_result["drop_from_high"],
@@ -282,7 +385,7 @@ class AnalysisService:
     ) -> dict:
         listing = self.listing_repository.get(listing_id)
         if not listing:
-            raise ValueError("매물을 찾을 수 없습니다.")
+            raise ValueError("Listing not found.")
 
         benchmarks = benchmarks or BenchmarkInputs()
         target_date = reference_date or date.today()
@@ -295,11 +398,26 @@ class AnalysisService:
             area_m2=float(listing["area_m2"]),
         )
 
-        sale_avg_3m = calculate_recent_3_month_sale_average(sale_history, reference_date=target_date)
-        sale_avg_6m = calculate_recent_6_month_sale_average(sale_history, reference_date=target_date)
-        sale_avg_12m = calculate_recent_12_month_sale_average(sale_history, reference_date=target_date)
-        one_year_high = calculate_one_year_high_sale_price(sale_history, reference_date=target_date)
-        one_year_low = calculate_one_year_low_sale_price(sale_history, reference_date=target_date)
+        sale_avg_3m = calculate_recent_3_month_sale_average(
+            sale_history,
+            reference_date=target_date,
+        )
+        sale_avg_6m = calculate_recent_6_month_sale_average(
+            sale_history,
+            reference_date=target_date,
+        )
+        sale_avg_12m = calculate_recent_12_month_sale_average(
+            sale_history,
+            reference_date=target_date,
+        )
+        one_year_high = calculate_one_year_high_sale_price(
+            sale_history,
+            reference_date=target_date,
+        )
+        one_year_low = calculate_one_year_low_sale_price(
+            sale_history,
+            reference_date=target_date,
+        )
         latest_rent_deposit_avg = calculate_latest_rent_deposit_average(
             rent_history,
             reference_date=target_date,
@@ -321,9 +439,9 @@ class AnalysisService:
         )
 
         if recent_avg_price is None:
-            raise ValueError("최근 매매 실거래 데이터가 없어 최근 평균가를 계산할 수 없습니다.")
+            raise ValueError("Recent sale average is unavailable for this listing.")
         if one_year_high_price is None:
-            raise ValueError("최근 1년 매매 실거래 데이터가 없어 최고가를 계산할 수 없습니다.")
+            raise ValueError("One-year high sale price is unavailable for this listing.")
 
         return {
             "market_metrics": {
@@ -392,6 +510,65 @@ class AnalysisService:
             return latest_rent_deposit_avg, "자동 계산 · 최근 전세 거래 평균"
         return 0, "데이터 없음"
 
+    def _get_complex_profile(
+        self,
+        *,
+        complex_id: int,
+        reference_date: date | None,
+    ) -> dict:
+        if self.market_scoring_service is None:
+            return {
+                "complex_id": complex_id,
+                "complex_grade": "NORMAL",
+                "complex_grade_label": "일반",
+                "liquidity_score": 60,
+                "liquidity_label": "normal liquidity",
+                "recent_sale_transaction_count": 0,
+                "recent_rent_transaction_count": 0,
+                "transaction_frequency": 0.0,
+                "average_sale_price_rank": None,
+                "price_per_area_rank": None,
+            }
+        return self.market_scoring_service.analyze_complex(
+            complex_id=complex_id,
+            reference_date=reference_date,
+        )
+
+    def _resolve_region_context(
+        self,
+        *,
+        listing: dict,
+        manual_region_type: str | None,
+        reference_date: date | None,
+    ) -> dict:
+        if manual_region_type:
+            return {
+                "region_type": manual_region_type,
+                "source": "manual override",
+                "active_policies": [],
+            }
+        if self.complex_repository is None or self.region_policy_service is None:
+            return {
+                "region_type": "NON_REGULATED",
+                "source": "default",
+                "active_policies": [],
+            }
+
+        complex_row = self.complex_repository.get(int(listing["complex_id"]))
+        if not complex_row:
+            return {
+                "region_type": "NON_REGULATED",
+                "source": "default",
+                "active_policies": [],
+            }
+
+        return self.region_policy_service.resolve_region_context(
+            sido=complex_row.get("sido"),
+            sigungu=complex_row.get("sigungu"),
+            dong=complex_row.get("dong"),
+            reference_date=reference_date,
+        )
+
 
 def _to_primary_user_mode(investment_type: str) -> str:
     return OWNER_OCCUPIED if investment_type == OWNER_OCCUPIED else "INVESTMENT"
@@ -412,12 +589,12 @@ def _resolve_analysis_investment_type(
 def _build_decision(*, primary_user_mode: str, shortage_cash: int) -> str:
     if primary_user_mode == OWNER_OCCUPIED:
         return (
-            "현재 자금으로 실거주 매수가 가능합니다."
+            "Current cash appears sufficient for owner-occupied purchase."
             if shortage_cash <= 0
-            else "실거주 매수 전 추가 자금이 필요합니다."
+            else "Additional cash is required for owner-occupied purchase."
         )
     return (
-        "현재 자금으로 투자 검토가 가능합니다."
+        "Current cash appears sufficient for this investment candidate."
         if shortage_cash <= 0
-        else "추가 자금 없이는 투자 진행이 어렵습니다."
+        else "Additional cash is required for this investment candidate."
     )

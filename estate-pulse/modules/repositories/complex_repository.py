@@ -22,6 +22,7 @@ class ApartmentComplexRepository:
         household_count: int | None,
         lat: float | None,
         lng: float | None,
+        complex_grade: str | None = None,
         memo: str | None = None,
     ) -> int:
         complex_id = execute(
@@ -29,9 +30,9 @@ class ApartmentComplexRepository:
             """
             INSERT INTO apartment_complex (
                 name, sido, sigungu, dong, address, build_year,
-                household_count, lat, lng, memo, created_at
+                household_count, lat, lng, complex_grade, memo, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 name,
@@ -43,6 +44,7 @@ class ApartmentComplexRepository:
                 household_count,
                 lat,
                 lng,
+                complex_grade,
                 memo,
                 utc_now_iso(),
             ),
@@ -82,6 +84,7 @@ class ApartmentComplexRepository:
         household_count: int | None,
         lat: float | None,
         lng: float | None,
+        complex_grade: str | None = None,
         memo: str | None = None,
     ) -> None:
         execute(
@@ -98,6 +101,7 @@ class ApartmentComplexRepository:
                 household_count = ?,
                 lat = ?,
                 lng = ?,
+                complex_grade = ?,
                 memo = ?
             WHERE id = ?
             """,
@@ -111,9 +115,21 @@ class ApartmentComplexRepository:
                 household_count,
                 lat,
                 lng,
+                complex_grade,
                 memo,
                 complex_id,
             ),
+        )
+
+    def update_complex_grade(self, complex_id: int, complex_grade: str | None) -> None:
+        execute(
+            self.database_path,
+            """
+            UPDATE apartment_complex
+            SET complex_grade = ?
+            WHERE id = ?
+            """,
+            (complex_grade, complex_id),
         )
 
     def delete(self, complex_id: int) -> None:

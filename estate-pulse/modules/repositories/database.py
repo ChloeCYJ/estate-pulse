@@ -28,6 +28,7 @@ SCHEMA_STATEMENTS = [
         household_count INTEGER,
         lat REAL,
         lng REAL,
+        complex_grade TEXT,
         memo TEXT,
         created_at TEXT NOT NULL
     )
@@ -111,11 +112,81 @@ SCHEMA_STATEMENTS = [
         current_required_cash INTEGER,
         future_required_cash INTEGER,
         monthly_cash_flow INTEGER,
+        acquisition_tax INTEGER,
+        local_education_tax INTEGER,
+        brokerage_fee INTEGER,
+        legal_fee INTEGER,
+        reserve_cost INTEGER,
+        total_transaction_cost INTEGER,
+        applied_tax_rule_version TEXT,
+        applied_brokerage_rule_version TEXT,
+        liquidity_score INTEGER,
+        investment_score INTEGER,
+        complex_grade TEXT,
         loan_rule_version TEXT,
         decision TEXT,
         summary TEXT,
         created_at TEXT NOT NULL,
         FOREIGN KEY (listing_id) REFERENCES manual_listing(id) ON DELETE CASCADE
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS watchlist (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        complex_id INTEGER,
+        listing_id INTEGER,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (complex_id) REFERENCES apartment_complex(id) ON DELETE CASCADE,
+        FOREIGN KEY (listing_id) REFERENCES manual_listing(id) ON DELETE CASCADE,
+        CHECK (complex_id IS NOT NULL OR listing_id IS NOT NULL),
+        UNIQUE (complex_id, listing_id)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS policy_import (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_text TEXT NOT NULL,
+        source_name TEXT,
+        target_rule_type TEXT NOT NULL,
+        effective_date TEXT,
+        parser_name TEXT NOT NULL,
+        parser_status TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS rule_candidate (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        policy_import_id INTEGER NOT NULL,
+        target_rule_type TEXT NOT NULL,
+        rule_name TEXT NOT NULL,
+        rule_version TEXT,
+        previous_rule_json TEXT,
+        proposed_rule_json TEXT NOT NULL,
+        changed_fields_json TEXT,
+        confidence REAL,
+        warnings TEXT,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        reviewed_at TEXT,
+        applied_at TEXT,
+        FOREIGN KEY (policy_import_id) REFERENCES policy_import(id) ON DELETE CASCADE
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS region_policy_status (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        region_level TEXT NOT NULL,
+        sido TEXT NOT NULL,
+        sigungu TEXT,
+        dong TEXT,
+        policy_type TEXT NOT NULL,
+        effective_from TEXT NOT NULL,
+        effective_to TEXT,
+        notes TEXT,
+        source_policy_import_id INTEGER,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (source_policy_import_id) REFERENCES policy_import(id) ON DELETE SET NULL
     )
     """,
 ]
@@ -136,6 +207,7 @@ def initialize_database(database_path: Path | str) -> None:
         for statement in SCHEMA_STATEMENTS:
             connection.execute(statement)
         _ensure_manual_listing_columns(connection)
+        _ensure_apartment_complex_columns(connection)
         _ensure_analysis_result_columns(connection)
         connection.commit()
 
@@ -181,6 +253,28 @@ def _ensure_analysis_result_columns(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE analysis_result ADD COLUMN monthly_cash_flow INTEGER")
     if "loan_rule_version" not in existing_columns:
         connection.execute("ALTER TABLE analysis_result ADD COLUMN loan_rule_version TEXT")
+    if "acquisition_tax" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN acquisition_tax INTEGER")
+    if "local_education_tax" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN local_education_tax INTEGER")
+    if "brokerage_fee" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN brokerage_fee INTEGER")
+    if "legal_fee" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN legal_fee INTEGER")
+    if "reserve_cost" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN reserve_cost INTEGER")
+    if "total_transaction_cost" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN total_transaction_cost INTEGER")
+    if "applied_tax_rule_version" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN applied_tax_rule_version TEXT")
+    if "applied_brokerage_rule_version" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN applied_brokerage_rule_version TEXT")
+    if "liquidity_score" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN liquidity_score INTEGER")
+    if "investment_score" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN investment_score INTEGER")
+    if "complex_grade" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN complex_grade TEXT")
 
 
 def _ensure_manual_listing_columns(connection: sqlite3.Connection) -> None:
@@ -195,3 +289,11 @@ def _ensure_manual_listing_columns(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE manual_listing ADD COLUMN rent_deposit INTEGER")
     if "expected_monthly_rent" not in existing_columns:
         connection.execute("ALTER TABLE manual_listing ADD COLUMN expected_monthly_rent INTEGER")
+
+
+def _ensure_apartment_complex_columns(connection: sqlite3.Connection) -> None:
+    existing_columns = {
+        row["name"] for row in connection.execute("PRAGMA table_info(apartment_complex)").fetchall()
+    }
+    if "complex_grade" not in existing_columns:
+        connection.execute("ALTER TABLE apartment_complex ADD COLUMN complex_grade TEXT")
