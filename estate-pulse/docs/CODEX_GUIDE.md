@@ -56,3 +56,136 @@
 공공 API 연동은 인터페이스만 먼저 만들고, 실제 API Key는 .env에서 읽도록 구성하라.
 
 민간 부동산 서비스 크롤링, 봇 탐지 우회, 세션 회전, CAPTCHA 우회 코드는 작성하지 마라.
+## Current Codex Working Guide
+
+This section reflects the current Estate Pulse implementation and should be followed for new Codex work.
+
+### Required Reading Before Work
+
+Read these files before implementation work:
+
+- `AGENTS.md`
+- `README.md`
+- `docs/ARCHITECTURE.md`
+- `docs/CODEX_GUIDE.md`
+
+Also inspect the current code implementation before changing behavior. Do not duplicate functionality that already exists.
+
+### Protected Paths
+
+Do not modify, restore, delete, compile, or inspect protected runtime artifacts:
+
+- `.venv/`
+- `.git/`
+- `__pycache__/`
+- `*.pyc`
+- `.env`
+- `*.db`
+
+SQLite DB files, including `data/app.db`, must not be edited directly. Schema compatibility should be handled in code through initialization-time additive migrations when required.
+
+### General Rules
+
+- Keep changes minimal and localized.
+- Do not refactor unrelated files.
+- Do not change DB schema unless the task explicitly requires it.
+- Do not update README/docs unless the user explicitly requests documentation updates.
+- Do not implement external API integration unless explicitly requested.
+- Do not implement private real-estate platform scraping.
+- Do not implement bot detection bypass, session rotation, or CAPTCHA bypass.
+- Do not write SQL directly in Streamlit UI code.
+- Keep UI, service orchestration, repository access, and analyzer calculation logic separated.
+- Preserve future FastAPI + PostgreSQL migration paths.
+
+### Current Architecture Expectations
+
+- Repositories own persistence and SQL.
+- Services combine repositories and analyzers.
+- Analyzers contain deterministic calculation/scoring functions.
+- UI modules handle Streamlit forms/rendering and call services/repositories.
+
+For feature development, first check whether the relevant Repository, Service, Analyzer, or UI module already exists. Extend existing modules where appropriate rather than creating parallel implementations.
+
+### Current Feature Areas
+
+Basic analysis:
+
+- Complex CRUD
+- Listing CRUD
+- Finance Profile CRUD
+- Owner-occupied analysis
+- Investment analysis
+- Transaction-based market context
+- Loan rule engine
+- Analysis history
+
+Comparison/ranking:
+
+- Watchlist
+- Comparison
+- Ranking
+- Bargain score
+- Liquidity score
+- Complex grade
+- Overall investment score
+
+Policy/admin:
+
+- Policy Event admin management
+- Loan rule management
+- Tax rule management
+- Brokerage/cost rule management
+- Regional regulation management
+- Policy document import
+- Policy candidate generation, approval, rejection, and application
+- Integrated policy document section review
+
+Finance Profile:
+
+- Cash amount
+- Existing debt
+- Home count
+- Owned real-estate market value
+- Owned real-estate debt balance
+- Credit loan balance
+- Other loan balance
+- Automatic LTV from policy/loan rule engine by default
+- Optional manual LTV override in the 0 to 1 range
+
+### Policy And Regulation Notes
+
+- `REGULATED_AREA` is a legacy/generic parent concept and is not shown as a new regional regulation selection.
+- Existing `REGULATED_AREA` DB rows are not automatically converted.
+- Current regional regulation uses practical multiple rows for multiple regulations on one region.
+- It is not yet a normalized N:M notice-to-region-to-regulation structure.
+- SQLite does not enforce enum/check constraints for policy types; Service validation controls supported values.
+- Consider PostgreSQL CHECK constraints or regulation type master tables during migration.
+
+### Test Command
+
+Use the standard unittest suite:
+
+```powershell
+$env:PYTHONDONTWRITEBYTECODE='1'
+.\.venv\Scripts\python -B -m unittest discover -s tests -v
+```
+
+Using `PYTHONDONTWRITEBYTECODE=1` and `-B` reduces `__pycache__` and `*.pyc` changes.
+
+### Documentation Rules
+
+- Do not overwrite documentation wholesale.
+- Preserve existing structure where practical.
+- Add or minimally update sections to reflect actual implemented behavior.
+- Do not document planned features as complete.
+- Include known limitations when behavior is intentionally constrained.
+
+### Completion Report
+
+When finishing a task, report:
+
+- Files changed
+- Main implementation or documentation changes
+- Tests run and results, or why tests were not run
+- Known limitations
+- Suggested next step when useful

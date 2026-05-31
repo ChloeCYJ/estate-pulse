@@ -229,3 +229,104 @@ def calculate_bargain_score(
         "jeonse_ratio": jeonse_ratio,
         "reasons": reasons,
     }
+
+## Current Architecture Update
+
+Estate Pulse currently uses a layered Streamlit + SQLite architecture.
+
+### Runtime Stack
+
+- UI: Streamlit pages under `modules/ui/`
+- Storage: SQLite through repository classes under `modules/repositories/`
+- Business orchestration: services under `modules/services/`
+- Calculation/scoring: analyzers under `modules/analyzers/`
+- Configuration: `config/`
+- Tests: `tests/`
+
+The module boundaries are kept so a future FastAPI + PostgreSQL migration can reuse most Repository, Service, and Analyzer logic.
+
+### Layer Responsibilities
+
+- Repositories own SQL and persistence details. They should not contain scoring or business decision logic.
+- Services combine repositories and analyzers. They own workflows such as analysis orchestration, rule selection, policy import, policy event matching, and regional regulation resolution.
+- Analyzers provide deterministic calculation functions for required cash, shortage cash, loan terms, taxes, brokerage/costs, bargain score, liquidity score, complex grade, and investment score.
+- UI modules render Streamlit forms/pages and call repositories/services rather than writing SQL directly.
+
+### Main Domains
+
+- Basic analysis: `apartment_complex`, `manual_listing`, `user_finance_profile`, `analysis_result`, `sale_transaction`, and `rent_transaction`.
+- Comparison/ranking: `watchlist`, `OpportunityService`, bargain score, liquidity score, complex grade, and overall investment score.
+- Policy/rule administration: policy imports, rule candidates, loan rules, tax rules, brokerage/cost rules, regional regulation rows, and review/approval/application workflows.
+- Policy Event: useful policy information that is not necessarily applied to calculation rules. It is currently an admin CRUD/review feature, not a standalone user lookup page.
+- Regional regulation: active region status rows in `region_policy_status`.
+
+### Finance Profile
+
+Finance Profile currently stores:
+
+- Cash amount
+- Existing debt total
+- Home count
+- Owned real-estate market value
+- Owned real-estate debt balance
+- Credit loan balance
+- Other loan balance
+- Legacy `ltv_limit`
+- Manual LTV usage flag
+- Manual LTV rate
+- Optional income, interest rate, and DSR fields retained for analysis compatibility
+
+Default analysis uses loan rule and regional regulation based automatic LTV. Manual LTV is only applied when explicitly enabled on the finance profile or entered as a one-time analysis override. Manual LTV is validated in the 0 to 1 range at the UI/input layer.
+
+Funding scenarios:
+
+- Cash-only purchase: uses cash amount as available cash.
+- Sell-owned-real-estate-before-purchase: uses cash + owned real-estate market value - owned real-estate debt balance.
+
+Sell-side taxes, brokerage, early repayment fees, and sale price discounts are not yet modeled.
+
+### Policy And Regulation Structure
+
+- Active region status is stored in `region_policy_status`.
+- Supported current regulation concepts are `NON_REGULATED_AREA`, `LAND_TRANSACTION_PERMISSION`, `SPECULATION_OVERHEATED_DISTRICT`, and `ADJUSTMENT_TARGET_AREA`.
+- `REGULATED_AREA` is retained for legacy compatibility but is not used as a new selection because it is a generic parent concept.
+- Existing `REGULATED_AREA` rows are not automatically converted.
+- Multiple active regulations for one region are represented by multiple rows, not by a normalized N:M master structure.
+- SQLite does not enforce enum/check constraints for policy type values in the current schema. Service-layer validation controls allowed values.
+
+### Menu Structure
+
+The sidebar is separated into user and admin sections.
+
+User menu:
+
+- Dashboard
+- 단지
+- 매물
+- 자금
+- 분석
+- 관심단지
+- 비교
+- 랭킹
+
+Admin menu:
+
+- 관리자
+
+Admin tabs:
+
+- 정책 이벤트
+- 대출 규칙
+- 세금 규칙
+- 중개보수 규칙
+- 지역 규제 상태
+- 정책 가져오기
+
+### SQLite Limitations And Migration Notes
+
+- Additive schema compatibility is handled through initialization-time `ALTER TABLE` checks.
+- Existing SQLite DB files should not be modified directly during development tasks.
+- PostgreSQL migration should consider CHECK constraints for enum-like fields.
+- PostgreSQL migration should consider master tables for regulation types and policy notices.
+- N:M structures should be considered when a single policy notice needs to connect many regions and many regulation types.
+- A separate read-only user policy view can be added later if Policy Events become user-facing.
