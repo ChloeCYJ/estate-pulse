@@ -93,6 +93,8 @@ def main() -> None:
         rule_runtime_service=rule_runtime_service,
         region_policy_service=region_policy_service,
         policy_event_service=policy_event_service,
+        policy_import_repository=policy_import_repository,
+        rule_candidate_repository=rule_candidate_repository,
     )
     policy_import_service = PolicyImportService(
         policy_import_repository=policy_import_repository,

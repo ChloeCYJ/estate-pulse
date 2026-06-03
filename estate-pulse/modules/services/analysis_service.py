@@ -298,6 +298,17 @@ class AnalysisService:
             complex_grade_label=complex_profile["complex_grade_label"],
             investment_score=investment_score_result["investment_score"],
         )
+        applied_rules = _build_applied_rules_trace(
+            listing=listing,
+            finance_profile=finance_profile,
+            benchmarks=benchmarks,
+            loan_terms=loan_terms,
+            region_context=region_context,
+            tax_breakdown=tax_breakdown,
+            brokerage_breakdown=brokerage_breakdown,
+            mode_metrics=mode_metrics,
+            expected_loan_amount=expected_loan_amount,
+        )
 
         result = {
             "listing_id": listing_id,
@@ -357,6 +368,7 @@ class AnalysisService:
             "applied_brokerage_rule_version": brokerage_breakdown[
                 "applied_brokerage_rule_version"
             ],
+            "applied_rules": applied_rules,
             "market_metrics": market_context["market_metrics"],
             "derived_inputs": market_context["derived_inputs"],
             "sale_history": market_context["sale_history"],
@@ -653,6 +665,115 @@ def _resolve_ltv_rate_override(
     if manual_ltv_rate is None:
         return None
     return float(manual_ltv_rate)
+
+
+def _build_applied_rules_trace(
+    *,
+    listing: dict,
+    finance_profile: dict,
+    benchmarks: BenchmarkInputs,
+    loan_terms: dict,
+    region_context: dict,
+    tax_breakdown: dict,
+    brokerage_breakdown: dict,
+    mode_metrics: dict,
+    expected_loan_amount: int,
+) -> dict:
+    """Build display-only rule trace data for the current analysis result."""
+    ltv_source = str(loan_terms.get("ltv_source") or "")
+    loan_amount_source = str(loan_terms.get("loan_amount_source") or "")
+    manual_ltv_enabled = ltv_source == "manual override"
+    manual_override_items = _build_manual_override_items(benchmarks)
+
+    return {
+        "loan_ltv": {
+            "base_price": int(listing["sale_price"]),
+            "applied_ltv_rate": loan_terms.get("applied_ltv_rate"),
+            "loan_amount_by_ltv": loan_terms.get("loan_amount_by_ltv"),
+            "dsr_based_loan_limit": loan_terms.get("dsr_based_loan_limit"),
+            "max_loan_amount": loan_terms.get("max_loan_amount"),
+            "policy_capped_loan_amount": loan_terms.get("policy_capped_loan_amount"),
+            "expected_loan_amount": int(expected_loan_amount),
+            "ltv_method": "MANUAL_OVERRIDE" if manual_ltv_enabled else "AUTO_RULE",
+            "ltv_source": ltv_source or None,
+            "manual_ltv_used": manual_ltv_enabled,
+            "manual_ltv_source": _manual_ltv_source(
+                benchmarks=benchmarks,
+                finance_profile=finance_profile,
+            )
+            if manual_ltv_enabled
+            else None,
+            "loan_amount_method": (
+                "MANUAL_OVERRIDE" if loan_amount_source == "manual override" else "AUTO_RULE"
+            ),
+            "loan_amount_source": loan_amount_source or None,
+            "applied_region_type": region_context.get("region_type"),
+            "region_policy_source": region_context.get("source"),
+            "active_region_policies": region_context.get("active_policies") or [],
+            "matched_rule_version": loan_terms.get("rule_version"),
+            "matched_rule_description": loan_terms.get("rule_description"),
+            "calculation_formula": "base_price * applied_ltv_rate = expected_loan_amount",
+        },
+        "dsr": {
+            "annual_income": finance_profile.get("annual_income"),
+            "dsr": mode_metrics.get("dsr"),
+            "applied_dsr_rate": loan_terms.get("applied_dsr_rate"),
+            "dsr_based_loan_limit": loan_terms.get("dsr_based_loan_limit"),
+            "missing_reason": (
+                "연소득 정보가 없어 계산하지 않았습니다."
+                if mode_metrics.get("dsr") is None
+                else None
+            ),
+        },
+        "monthly_repayment": {
+            "annual_interest_rate": finance_profile.get("interest_rate"),
+            "loan_term_years": 30,
+            "monthly_repayment": mode_metrics.get("monthly_repayment"),
+            "missing_reason": (
+                "금리 또는 대출기간 정보가 없어 계산하지 않았습니다."
+                if mode_metrics.get("monthly_repayment") is None
+                else None
+            ),
+        },
+        "transaction_costs": {
+            "tax_rule_version": tax_breakdown.get("applied_tax_rule_version"),
+            "tax_rule_description": tax_breakdown.get("rule_description"),
+            "tax_manual_override": bool(tax_breakdown.get("manual_override")),
+            "brokerage_rule_version": brokerage_breakdown.get(
+                "applied_brokerage_rule_version"
+            ),
+            "brokerage_rule_description": brokerage_breakdown.get("rule_description"),
+            "brokerage_manual_override": bool(brokerage_breakdown.get("manual_override")),
+            "repair_cost_manual_override": benchmarks.repair_cost > 0,
+            "manual_override_used": bool(manual_override_items),
+            "manual_override_items": manual_override_items,
+        },
+    }
+
+
+def _manual_ltv_source(*, benchmarks: BenchmarkInputs, finance_profile: dict) -> str:
+    if benchmarks.ltv_rate_override is not None:
+        return "ANALYSIS_INPUT"
+    if finance_profile.get("use_manual_ltv"):
+        return "FINANCE_PROFILE"
+    return "UNKNOWN"
+
+
+def _build_manual_override_items(benchmarks: BenchmarkInputs) -> list[str]:
+    items: list[str] = []
+    override_fields = (
+        ("acquisition_tax_override", "취득세"),
+        ("local_education_tax_override", "지방교육세"),
+        ("brokerage_fee_override", "중개보수"),
+        ("legal_fee_override", "법무비"),
+        ("reserve_cost_override", "예비비"),
+    )
+    for field_name, label in override_fields:
+        if getattr(benchmarks, field_name) is not None:
+            items.append(label)
+    if benchmarks.repair_cost > 0:
+        items.append("수리비")
+    return items
 
 
 def _normalize_funding_mode(value: str | None) -> str:

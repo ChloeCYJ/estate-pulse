@@ -88,98 +88,105 @@ def render_analysis_page(
         )
         _render_profile_purchase_power_preview(selected_profile, funding_mode)
 
-        st.subheader("시장 입력 보정")
-        market_col1, market_col2 = st.columns(2)
-        with market_col1:
-            recent_avg_price_override_eok = st.number_input(
-                "최근 평균가 override (억 원)",
-                min_value=0.0,
-                step=0.1,
-                value=0.0,
-                format="%.2f",
+        with st.expander("고급 설정: 시장 입력값 수동 보정", expanded=False):
+            st.caption(
+                "기본값은 시스템이 자동 계산합니다. 실제 매매 조건이 다른 경우에만 수동 보정을 입력하세요."
             )
-            one_year_high_price_override_eok = st.number_input(
-                "최근 1년 최고가 override (억 원)",
-                min_value=0.0,
-                step=0.1,
-                value=0.0,
-                format="%.2f",
-            )
-        with market_col2:
-            expected_loan_amount_eok = st.number_input(
-                "예상 대출 override (억 원)",
-                min_value=0.0,
-                step=0.1,
-                value=0.0,
-                format="%.2f",
-            )
-            ltv_rate_override = st.number_input(
-                "이번 분석 수동 LTV 보정",
-                min_value=0.0,
-                max_value=1.0,
-                step=0.05,
-                value=0.0,
-                format="%.2f",
-                help="비워두면 자금 프로필의 수동 LTV 설정 또는 대출 규칙 엔진의 자동 계산값을 사용합니다.",
-            )
-            repair_cost_eok = st.number_input(
-                "수리비 (억 원)",
-                min_value=0.0,
-                step=0.1,
-                value=0.0,
-                format="%.2f",
-            )
-            expected_jeonse_price_override_eok = 0.0
-            if selected_mode == "INVESTMENT":
-                expected_jeonse_price_override_eok = st.number_input(
-                    "예상 전세가 override (억 원)",
+            market_col1, market_col2 = st.columns(2)
+            with market_col1:
+                recent_avg_price_override_eok = st.number_input(
+                    "최근 평균가 수동 보정 (억 원)",
                     min_value=0.0,
                     step=0.1,
                     value=0.0,
                     format="%.2f",
                 )
+                one_year_high_price_override_eok = st.number_input(
+                    "최근 1년 최고가 수동 보정 (억 원)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=0.0,
+                    format="%.2f",
+                )
+                repair_cost_eok = st.number_input(
+                    "수리비 (억 원)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=0.0,
+                    format="%.2f",
+                )
+            with market_col2:
+                expected_loan_amount_eok = st.number_input(
+                    "예상 대출 수동 보정 (억 원)",
+                    min_value=0.0,
+                    step=0.1,
+                    value=0.0,
+                    format="%.2f",
+                )
+                ltv_rate_override = st.number_input(
+                    "LTV 수동 보정",
+                    min_value=0.0,
+                    max_value=1.0,
+                    step=0.05,
+                    value=0.0,
+                    format="%.2f",
+                    help="비워두면 자금 프로필의 수동 LTV 설정 또는 대출 규칙 엔진의 자동 계산값을 사용합니다.",
+                )
+                expected_jeonse_price_override_eok = 0.0
+                if selected_mode == "INVESTMENT":
+                    expected_jeonse_price_override_eok = st.number_input(
+                        "예상 전세가 수동 보정 (억 원)",
+                        min_value=0.0,
+                        step=0.1,
+                        value=0.0,
+                        format="%.2f",
+                    )
 
-        st.subheader("거래비용 수동 override")
-        cost_col1, cost_col2, cost_col3 = st.columns(3)
-        with cost_col1:
-            acquisition_tax_override_eok = st.number_input(
-                "취득세 override (억 원)",
-                min_value=0.0,
-                step=0.01,
-                value=0.0,
-                format="%.2f",
+        with st.expander("고급 설정: 거래비용 수동 보정", expanded=False):
+            st.caption(
+                "기본값은 시스템이 자동 계산합니다. 실제 계약 비용이 다른 경우에만 수동 보정을 입력하세요."
             )
-            local_education_tax_override_eok = st.number_input(
-                "지방교육세 override (억 원)",
-                min_value=0.0,
-                step=0.01,
-                value=0.0,
-                format="%.2f",
-            )
-        with cost_col2:
-            brokerage_fee_override_eok = st.number_input(
-                "중개보수 override (억 원)",
-                min_value=0.0,
-                step=0.01,
-                value=0.0,
-                format="%.2f",
-            )
-            legal_fee_override_eok = st.number_input(
-                "법무비 override (억 원)",
-                min_value=0.0,
-                step=0.01,
-                value=0.0,
-                format="%.2f",
-            )
-        with cost_col3:
-            reserve_cost_override_eok = st.number_input(
-                "예비비 override (억 원)",
-                min_value=0.0,
-                step=0.01,
-                value=0.0,
-                format="%.2f",
-            )
-            save_result = st.checkbox("분석 결과 저장", value=True)
+            cost_col1, cost_col2, cost_col3 = st.columns(3)
+            with cost_col1:
+                acquisition_tax_override_eok = st.number_input(
+                    "취득세 수동 보정 (억 원)",
+                    min_value=0.0,
+                    step=0.01,
+                    value=0.0,
+                    format="%.2f",
+                )
+                local_education_tax_override_eok = st.number_input(
+                    "지방교육세 수동 보정 (억 원)",
+                    min_value=0.0,
+                    step=0.01,
+                    value=0.0,
+                    format="%.2f",
+                )
+            with cost_col2:
+                brokerage_fee_override_eok = st.number_input(
+                    "중개보수 수동 보정 (억 원)",
+                    min_value=0.0,
+                    step=0.01,
+                    value=0.0,
+                    format="%.2f",
+                )
+                legal_fee_override_eok = st.number_input(
+                    "법무비 수동 보정 (억 원)",
+                    min_value=0.0,
+                    step=0.01,
+                    value=0.0,
+                    format="%.2f",
+                )
+            with cost_col3:
+                reserve_cost_override_eok = st.number_input(
+                    "예비비 수동 보정 (억 원)",
+                    min_value=0.0,
+                    step=0.01,
+                    value=0.0,
+                    format="%.2f",
+                )
+
+        save_result = st.checkbox("분석 결과 저장", value=True)
 
         submitted = st.form_submit_button("분석 실행")
 
@@ -209,51 +216,7 @@ def render_analysis_page(
         except ValueError as exc:
             st.error(str(exc))
 
-    st.divider()
-    st.subheader("최근 분석 이력")
-    recent_results = analysis_repository.list_recent()
-    if not recent_results:
-        st.caption("저장된 분석 결과가 없습니다.")
-        return
-
-    history_df = pd.DataFrame(recent_results)[
-        [
-            "complex_name",
-            "sale_price",
-            "required_cash",
-            "shortage_cash",
-            "bargain_score",
-            "liquidity_score",
-            "investment_score",
-            "complex_grade",
-            "created_at",
-        ]
-    ].rename(
-        columns={
-            "complex_name": "단지",
-            "sale_price": "매물가",
-            "required_cash": "필요 현금",
-            "shortage_cash": "부족 현금",
-            "bargain_score": "급매 점수",
-            "liquidity_score": "유동성 점수",
-            "investment_score": "투자 점수",
-            "complex_grade": "단지 등급",
-            "created_at": "분석일",
-        }
-    )
-    for column in ["매물가", "필요 현금", "부족 현금"]:
-        history_df[column] = history_df[column].map(format_compact_won)
-    history_df["단지 등급"] = history_df["단지 등급"].map(_complex_grade_label)
-    st.dataframe(history_df, use_container_width=True, hide_index=True)
-
-    chart = px.bar(
-        pd.DataFrame(recent_results).head(10),
-        x="complex_name",
-        y="investment_score",
-        color="complex_grade",
-        title="최근 투자 점수",
-    )
-    st.plotly_chart(chart, use_container_width=True)
+    _render_recent_analysis_history(analysis_repository.list_recent())
 
 
 def _render_analysis_metrics(result: dict) -> None:
@@ -262,20 +225,18 @@ def _render_analysis_metrics(result: dict) -> None:
 
     _render_decision_highlight(result)
 
-    top_cols = st.columns(4)
-    top_cols[0].metric("필요 현금", format_compact_won(result["required_cash"]))
-    top_cols[1].metric("매수 가능 현금", _format_available_cash(result))
-    top_cols[2].metric("예상 대출", format_compact_won(result["expected_loan_amount"]))
-    top_cols[3].metric("투자 점수", str(result["investment_score"]))
+    st.write("핵심 자금 판단")
+    _render_core_cash_metrics(result)
 
+    st.write("보조 지표")
     detail_cols = st.columns(4)
-    detail_cols[0].metric("급매 점수", f"{result['bargain_score']} ({result['bargain_grade']})")
-    detail_cols[1].metric("전세가율", f"{result['jeonse_ratio']:.1f}%")
-    detail_cols[2].metric("단지 등급", result["complex_grade_label"])
-    detail_cols[3].metric("예상 대출", format_compact_won(result["expected_loan_amount"]))
+    detail_cols[0].metric("투자 점수", str(result["investment_score"]))
+    detail_cols[1].metric("급매 점수", f"{result['bargain_score']} ({result['bargain_grade']})")
+    detail_cols[2].metric("전세가율", f"{result['jeonse_ratio']:.1f}%")
+    detail_cols[3].metric("단지 등급", _complex_grade_label(result.get("complex_grade")))
 
+    extra_cols = st.columns(3)
     if result["primary_user_mode"] == "INVESTMENT":
-        extra_cols = st.columns(3)
         extra_cols[0].metric("갭 금액", format_compact_won(result["gap_amount"]))
         extra_cols[1].metric(
             "자금 효율 점수",
@@ -286,23 +247,38 @@ def _render_analysis_metrics(result: dict) -> None:
             _format_efficiency(result["estimated_investment_efficiency"]),
         )
     else:
-        extra_cols = st.columns(3)
         extra_cols[0].metric("월 상환액", _format_optional_money(result["monthly_repayment"]))
+        repayment_reason = _missing_metric_reason("monthly_repayment", result["monthly_repayment"])
+        if repayment_reason:
+            extra_cols[0].caption(repayment_reason)
         extra_cols[1].metric("DSR", _format_optional_percent(result["dsr"]))
+        dsr_reason = _missing_metric_reason("dsr", result["dsr"])
+        if dsr_reason:
+            extra_cols[1].caption(dsr_reason)
         extra_cols[2].metric(
-            "매수 후 잔여 현금",
-            format_compact_won(result["remaining_cash_after_purchase"]),
+            "매수 후 현금 잔액",
+            format_compact_won(_cash_judgment(result)["cash_balance_after_purchase"]),
         )
 
     st.caption(f"판정: {result['decision']}")
-    _render_purchase_power_table(result)
-    _render_source_table(result)
-    _render_active_region_policy_table(result)
-    _render_cost_table(result)
-    _render_complex_profile_table(result)
-    _render_policy_event_table(result)
-    _render_formula_explainer(result)
-    st.text_area("요약", value=result["summary"], height=180, disabled=True)
+
+    with st.expander("상세: 자금 사용 기준", expanded=False):
+        _render_purchase_power_table(result)
+    with st.expander("상세: 계산 기준", expanded=False):
+        _render_source_table(result)
+    with st.expander("적용 계산 룰 보기", expanded=False):
+        _render_applied_rules_panel(result)
+    with st.expander("상세: 지역 규제 및 정책 참고", expanded=False):
+        _render_active_region_policy_table(result)
+        _render_policy_event_table(result)
+    with st.expander("상세: 거래비용", expanded=False):
+        _render_cost_table(result)
+    with st.expander("상세: 단지 품질 분석", expanded=False):
+        _render_complex_profile_table(result)
+    with st.expander("상세: 계산식", expanded=False):
+        _render_formula_explainer(result)
+    with st.expander("상세: 요약 원문", expanded=False):
+        st.text_area("요약", value=result["summary"], height=180, disabled=True)
 
     if result["reasons"]:
         st.write("점수 반영 사유")
@@ -316,26 +292,49 @@ def _render_analysis_metrics(result: dict) -> None:
 
 
 def _render_decision_highlight(result: dict) -> None:
-    shortage_cash = int(result["shortage_cash"])
-    required_cash = int(result["required_cash"])
-    available_cash = int(
-        (result.get("purchase_power") or {}).get("available_cash_for_purchase") or 0
-    )
-    if shortage_cash > 0:
+    judgment = _cash_judgment(result)
+    if not judgment["can_purchase"]:
         st.error(
-            f"부족 현금: {format_compact_won(shortage_cash)} 필요. "
-            f"현재 기준 매수 가능 현금 {format_compact_won(available_cash)}으로는 부족합니다."
+            f"매수 불가: 추가 필요 현금 {format_compact_won(judgment['additional_cash_required'])}. "
+            f"현재 가용 현금 {format_compact_won(judgment['available_cash'])}으로는 부족합니다."
         )
     else:
         st.success(
-            f"현금 여유: {format_compact_won(abs(shortage_cash))}. "
-            f"필요 현금 {format_compact_won(required_cash)}을 충족합니다."
+            f"매수 가능: 매수 후 현금 잔액 "
+            f"{format_compact_won(judgment['cash_balance_after_purchase'])}."
         )
+    st.caption(
+        "총 필요 현금은 매수가, 취득세, 중개보수, 예비비 등을 반영한 자기자본 기준입니다. "
+        "추가 필요 현금은 현재 가용 현금으로 부족한 금액입니다."
+    )
 
 
-def _format_available_cash(result: dict) -> str:
+def _render_core_cash_metrics(result: dict) -> None:
+    judgment = _cash_judgment(result)
+
+    top_cols = st.columns([1.35, 1, 1, 1])
+    top_cols[0].metric("가용 현금", format_compact_won(judgment["available_cash"]))
+    top_cols[1].metric("총 필요 현금", format_compact_won(judgment["required_cash"]))
+    top_cols[2].metric(
+        "추가 필요 현금",
+        format_compact_won(judgment["additional_cash_required"]),
+    )
+    top_cols[3].metric("예상 대출", format_compact_won(result["expected_loan_amount"]))
+
+
+def _cash_judgment(result: dict) -> dict[str, int | bool]:
+    required_cash = int(result["required_cash"])
     purchase_power = result.get("purchase_power") or {}
-    return format_compact_won(purchase_power.get("available_cash_for_purchase") or 0)
+    available_cash = int(purchase_power.get("available_cash_for_purchase") or 0)
+    cash_balance_after_purchase = available_cash - required_cash
+    additional_cash_required = max(required_cash - available_cash, 0)
+    return {
+        "available_cash": available_cash,
+        "required_cash": required_cash,
+        "additional_cash_required": additional_cash_required,
+        "cash_balance_after_purchase": cash_balance_after_purchase,
+        "can_purchase": available_cash >= required_cash,
+    }
 
 
 def _render_profile_purchase_power_preview(profile: dict, funding_mode: str) -> None:
@@ -351,7 +350,7 @@ def _render_profile_purchase_power_preview(profile: dict, funding_mode: str) -> 
     if funding_mode == SELL_OWNED_REAL_ESTATE and owned_real_estate_value <= 0:
         st.warning("보유 부동산 시가가 0원입니다. 자금 프로필에서 처분 대상 부동산 금액을 먼저 입력해 주세요.")
     st.caption(
-        "매수 가능 현금 기준: "
+        "가용 현금 기준: "
         f"{format_compact_won(available_cash)} "
         f"(보유 현금 {format_compact_won(cash_amount)}"
         + (
@@ -388,7 +387,7 @@ def _render_purchase_power_table(result: dict) -> None:
             "값": format_compact_won(purchase_power.get("sale_net_cash") or 0),
         },
         {
-            "항목": "매수 가능 현금 기준",
+            "항목": "가용 현금 기준",
             "값": format_compact_won(purchase_power.get("available_cash_for_purchase") or 0),
         },
         {
@@ -405,41 +404,179 @@ def _render_source_table(result: dict) -> None:
         {
             "항목": "최근 평균가",
             "적용값": format_compact_won(result["derived_inputs"]["recent_avg_price"]),
-            "출처": result["sources"]["recent_avg_price"],
+            "출처": _source_label(result["sources"]["recent_avg_price"]),
         },
         {
             "항목": "최근 1년 최고가",
             "적용값": format_compact_won(result["derived_inputs"]["one_year_high_price"]),
-            "출처": result["sources"]["one_year_high_price"],
+            "출처": _source_label(result["sources"]["one_year_high_price"]),
         },
         {
             "항목": "예상 전세가",
             "적용값": format_compact_won(result["expected_jeonse_price"]),
-            "출처": result["sources"]["expected_jeonse_price"],
+            "출처": _source_label(result["sources"]["expected_jeonse_price"]),
         },
         {
             "항목": "세금 규칙",
-            "적용값": result["applied_tax_rule_version"],
-            "출처": "config/tax_rules.py",
+            "적용값": _display_value(result["applied_tax_rule_version"]),
+            "출처": _display_value("config/tax_rules.py"),
         },
         {
             "항목": "중개/비용 규칙",
-            "적용값": result["applied_brokerage_rule_version"],
-            "출처": "config/brokerage_rules.py",
+            "적용값": _display_value(result["applied_brokerage_rule_version"]),
+            "출처": _display_value("config/brokerage_rules.py"),
         },
         {
             "항목": "대출 규칙",
-            "적용값": result["loan_rule_version"],
-            "출처": result["loan_terms"]["ltv_source"],
+            "적용값": _display_value(result["loan_rule_version"]),
+            "출처": _source_label(result["loan_terms"]["ltv_source"]),
         },
         {
             "항목": "대출 지역 판정",
-            "적용값": result["resolved_region_type"],
-            "출처": result["region_policy_source"],
+            "적용값": _loan_region_type_label(result["resolved_region_type"]),
+            "출처": _source_label(result["region_policy_source"]),
         },
     ]
-    st.write("계산 기준")
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+
+def _render_applied_rules_panel(result: dict) -> None:
+    applied_rules = result.get("applied_rules") or {}
+    if not applied_rules:
+        st.caption("이번 분석에 사용된 계산 룰 설명 정보가 없습니다.")
+        return
+
+    loan_ltv = applied_rules.get("loan_ltv") or {}
+    base_price = loan_ltv.get("base_price")
+    applied_ltv_rate = loan_ltv.get("applied_ltv_rate")
+    loan_amount_by_ltv = loan_ltv.get("loan_amount_by_ltv")
+    expected_loan_amount = loan_ltv.get("expected_loan_amount")
+    loan_rows = [
+        {"항목": "기준 가격", "값": _format_optional_money(base_price)},
+        {"항목": "적용 LTV", "값": _format_ratio_percent(applied_ltv_rate)},
+        {"항목": "LTV 기준 대출", "값": _format_optional_money(loan_amount_by_ltv)},
+        {
+            "항목": "DSR 기준 대출 한도",
+            "값": _format_optional_money(loan_ltv.get("dsr_based_loan_limit")),
+        },
+        {
+            "항목": "최대 대출액",
+            "값": _format_unlimited_money(loan_ltv.get("max_loan_amount")),
+        },
+        {
+            "항목": "정책 제한 후 대출",
+            "값": _format_optional_money(loan_ltv.get("policy_capped_loan_amount")),
+        },
+        {"항목": "예상 대출", "값": _format_optional_money(expected_loan_amount)},
+        {
+            "항목": "LTV 적용 방식",
+            "값": _applied_method_label(loan_ltv.get("ltv_method")),
+        },
+        {
+            "항목": "수동 LTV 사용 여부",
+            "값": "예" if loan_ltv.get("manual_ltv_used") else "아니오",
+        },
+        {
+            "항목": "수동 LTV 출처",
+            "값": _manual_ltv_source_label(loan_ltv.get("manual_ltv_source")),
+        },
+        {
+            "항목": "적용 규제",
+            "값": _loan_region_type_label(loan_ltv.get("applied_region_type")),
+        },
+        {
+            "항목": "지역 판정 출처",
+            "값": _source_label(loan_ltv.get("region_policy_source")),
+        },
+        {
+            "항목": "적용 대출 규칙",
+            "값": _rule_name(
+                loan_ltv.get("matched_rule_description"),
+                loan_ltv.get("matched_rule_version"),
+            ),
+        },
+        {
+            "항목": "예상 대출 적용 방식",
+            "값": _applied_method_label(loan_ltv.get("loan_amount_method")),
+        },
+        {"항목": "계산식", "값": _ltv_formula_label(loan_ltv)},
+    ]
+    st.write("대출/LTV")
+    st.dataframe(pd.DataFrame(loan_rows), use_container_width=True, hide_index=True)
+
+    dsr = applied_rules.get("dsr") or {}
+    dsr_rows = [
+        {"항목": "연소득", "값": _format_optional_money(dsr.get("annual_income"))},
+        {"항목": "DSR", "값": _format_optional_percent(dsr.get("dsr"))},
+        {"항목": "DSR 한도", "값": _format_ratio_percent(dsr.get("applied_dsr_rate"))},
+        {
+            "항목": "DSR 기준 대출 한도",
+            "값": _format_optional_money(dsr.get("dsr_based_loan_limit")),
+        },
+        {"항목": "계산 불가 사유", "값": _display_value(dsr.get("missing_reason"))},
+    ]
+    st.write("DSR")
+    st.dataframe(pd.DataFrame(dsr_rows), use_container_width=True, hide_index=True)
+
+    monthly_repayment = applied_rules.get("monthly_repayment") or {}
+    repayment_rows = [
+        {
+            "항목": "금리",
+            "값": _format_ratio_percent(monthly_repayment.get("annual_interest_rate")),
+        },
+        {
+            "항목": "대출기간",
+            "값": _loan_term_label(monthly_repayment.get("loan_term_years")),
+        },
+        {
+            "항목": "월상환액",
+            "값": _format_optional_money(monthly_repayment.get("monthly_repayment")),
+        },
+        {
+            "항목": "계산 불가 사유",
+            "값": _display_value(monthly_repayment.get("missing_reason")),
+        },
+    ]
+    st.write("월상환액")
+    st.dataframe(pd.DataFrame(repayment_rows), use_container_width=True, hide_index=True)
+
+    transaction_costs = applied_rules.get("transaction_costs") or {}
+    cost_rows = [
+        {
+            "항목": "취득세 적용 방식",
+            "값": _cost_rule_method_label(transaction_costs.get("tax_manual_override")),
+        },
+        {
+            "항목": "취득세 규칙",
+            "값": _rule_name(
+                transaction_costs.get("tax_rule_description"),
+                transaction_costs.get("tax_rule_version"),
+            ),
+        },
+        {
+            "항목": "중개보수 적용 방식",
+            "값": _cost_rule_method_label(
+                transaction_costs.get("brokerage_manual_override")
+            ),
+        },
+        {
+            "항목": "중개/비용 규칙",
+            "값": _rule_name(
+                transaction_costs.get("brokerage_rule_description"),
+                transaction_costs.get("brokerage_rule_version"),
+            ),
+        },
+        {
+            "항목": "수동 보정 사용 여부",
+            "값": "예" if transaction_costs.get("manual_override_used") else "아니오",
+        },
+        {
+            "항목": "수동 보정 항목",
+            "값": _joined_labels(transaction_costs.get("manual_override_items")),
+        },
+    ]
+    st.write("거래비용")
+    st.dataframe(pd.DataFrame(cost_rows), use_container_width=True, hide_index=True)
 
 
 def _render_cost_table(result: dict) -> None:
@@ -473,7 +610,6 @@ def _render_cost_table(result: dict) -> None:
             "금액": format_compact_won(result["costs"]["total_transaction_cost"]),
         },
     ]
-    st.write("거래비용")
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
@@ -486,10 +622,10 @@ def _render_active_region_policy_table(result: dict) -> None:
 
     rows = [
         {
-            "규제 유형": _region_policy_type_label(str(policy["policy_type"])),
+            "규제 유형": _region_policy_type_label(_display_value(policy.get("policy_type"))),
             "적용 지역": policy.get("region_scope") or _region_scope_label(policy),
-            "지역 레벨": _region_level_label(str(policy["region_level"])),
-            "시작일": policy["effective_from"],
+            "지역 레벨": _region_level_label(_display_value(policy.get("region_level"))),
+            "시작일": _display_value(policy.get("effective_from")),
             "종료일": policy.get("effective_to") or "-",
             "대출 지역 판정": _loan_region_type_label(policy.get("loan_region_type")),
             "메모": policy.get("notes") or "-",
@@ -502,16 +638,15 @@ def _render_active_region_policy_table(result: dict) -> None:
 def _render_complex_profile_table(result: dict) -> None:
     profile = result["complex_profile"]
     rows = [
-        {"항목": "단지 등급", "값": result["complex_grade_label"]},
-        {"항목": "유동성 점수", "값": profile["liquidity_score"]},
-        {"항목": "유동성 해석", "값": profile["liquidity_label"]},
-        {"항목": "최근 매매 거래 수", "값": profile["recent_sale_transaction_count"]},
-        {"항목": "최근 전세 거래 수", "값": profile["recent_rent_transaction_count"]},
-        {"항목": "거래 빈도", "값": profile["transaction_frequency"]},
-        {"항목": "지역 평균가 순위", "값": profile["average_sale_price_rank"]},
-        {"항목": "평당가 순위", "값": profile["price_per_area_rank"]},
+        {"항목": "단지 등급", "값": _complex_grade_label(profile.get("complex_grade"))},
+        {"항목": "유동성 점수", "값": _display_value(profile.get("liquidity_score"))},
+        {"항목": "유동성 해석", "값": _liquidity_label(profile.get("liquidity_label"))},
+        {"항목": "최근 매매 거래 수", "값": _display_value(profile.get("recent_sale_transaction_count"))},
+        {"항목": "최근 전세 거래 수", "값": _display_value(profile.get("recent_rent_transaction_count"))},
+        {"항목": "거래 빈도", "값": _display_value(profile.get("transaction_frequency"))},
+        {"항목": "지역 평균가 순위", "값": _display_value(profile.get("average_sale_price_rank"))},
+        {"항목": "평당가 순위", "값": _display_value(profile.get("price_per_area_rank"))},
     ]
-    st.write("단지 품질 분석")
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
@@ -524,17 +659,17 @@ def _render_policy_event_table(result: dict) -> None:
 
     rows = [
         {
-            "Title": event["title"],
-            "Summary": event["summary"],
-            "Impact": event["impact_level"],
-            "Effective From": event["effective_from"],
-            "Effective To": event.get("effective_to") or "-",
-            "Mode": (
-                "Calculation-supported reference"
+            "제목": event["title"],
+            "요약": event["summary"],
+            "영향도": _impact_level_label(event["impact_level"]),
+            "시작일": event["effective_from"],
+            "종료일": event.get("effective_to") or "-",
+            "반영 방식": (
+                "계산 지원 참고"
                 if event["reference_mode"] == "CALCULATION_SUPPORTED_REFERENCE"
-                else "Reference only"
+                else "참고 전용"
             ),
-            "Source": event.get("source_name") or "-",
+            "출처": event.get("source_name") or "-",
         }
         for event in events
     ]
@@ -542,47 +677,50 @@ def _render_policy_event_table(result: dict) -> None:
 
 
 def _render_formula_explainer(result: dict) -> None:
-    with st.expander("계산식 보기"):
-        lines = [
-            f"- 매물가: {format_won(result['sale_price'])}",
-            f"- 예상 대출: {format_won(result['expected_loan_amount'])}",
-            f"- 총 거래비용: {format_won(result['costs']['total_transaction_cost'])}",
-        ]
-        if result["primary_user_mode"] == "INVESTMENT":
-            lines.extend(
-                [
-                    f"- 예상 전세가: {format_won(result['expected_jeonse_price'])}",
-                    "- 필요 현금 = 매물가 - 예상 대출 - 예상 전세가 + 총 거래비용 + 수리비",
-                    (
-                        f"- 계산 결과: {format_won(result['required_cash'])} / "
-                        f"부족 현금 {format_won(result['shortage_cash'])}"
-                    ),
-                ]
-            )
-        else:
-            lines.extend(
-                [
-                    "- 필요 현금 = 매물가 - 예상 대출 + 총 거래비용 + 수리비",
-                    (
-                        f"- 계산 결과: {format_won(result['required_cash'])} / "
-                        f"부족 현금 {format_won(result['shortage_cash'])}"
-                    ),
-                ]
-            )
+    lines = [
+        f"- 매물가: {format_won(result['sale_price'])}",
+        f"- 예상 대출: {format_won(result['expected_loan_amount'])}",
+        f"- 총 거래비용: {format_won(result['costs']['total_transaction_cost'])}",
+    ]
+    if result["primary_user_mode"] == "INVESTMENT":
         lines.extend(
             [
-                f"- 급매 점수: {result['bargain_score']}",
-                f"- 유동성 점수: {result['liquidity_score']}",
-                f"- 단지 등급: {result['complex_grade_label']}",
-                f"- 투자 점수: {result['investment_score']}",
+                f"- 예상 전세가: {format_won(result['expected_jeonse_price'])}",
+                "- 총 필요 현금 = 매물가 - 예상 대출 - 예상 전세가 + 총 거래비용 + 수리비",
+                (
+                    f"- 계산 결과: 총 필요 현금 {format_won(result['required_cash'])} / "
+                    f"추가 필요 현금 {format_won(_cash_judgment(result)['additional_cash_required'])}"
+                ),
             ]
         )
-        st.markdown("\n".join(lines))
+    else:
+        lines.extend(
+            [
+                "- 총 필요 현금 = 매물가 - 예상 대출 + 총 거래비용 + 수리비",
+                (
+                    f"- 계산 결과: 총 필요 현금 {format_won(result['required_cash'])} / "
+                    f"추가 필요 현금 {format_won(_cash_judgment(result)['additional_cash_required'])}"
+                ),
+            ]
+        )
+    lines.extend(
+        [
+            f"- 급매 점수: {result['bargain_score']}",
+            f"- 유동성 점수: {result['liquidity_score']}",
+            f"- 단지 등급: {_complex_grade_label(result.get('complex_grade'))}",
+            f"- 투자 점수: {result['investment_score']}",
+        ]
+    )
+    st.markdown("\n".join(lines))
 
 
 def _render_transaction_summary(transaction_context: dict) -> None:
     st.subheader("거래 요약")
     metrics = transaction_context["market_metrics"]
+    st.caption(
+        f"최근 매매 {metrics['sale_transaction_count']}건, "
+        f"최근 전세 {metrics['rent_transaction_count']}건 기준으로 계산했습니다."
+    )
 
     cols = st.columns(4)
     cols[0].metric("최근 3개월 평균", format_compact_won(metrics["sale_avg_3m"]))
@@ -630,37 +768,104 @@ def _render_transaction_history(transaction_context: dict) -> None:
         )
         st.plotly_chart(chart, use_container_width=True)
 
-    sale_tab, rent_tab = st.tabs(["매매 이력", "전세 이력"])
-    with sale_tab:
-        if sale_history.empty:
-            st.caption("매매 거래 데이터가 없습니다.")
-        else:
-            sale_df = sale_history[["deal_date", "area_m2", "price", "floor"]].copy()
-            sale_df["price"] = sale_df["price"].map(to_eok)
-            sale_df = sale_df.rename(
-                columns={
-                    "deal_date": "거래일",
-                    "area_m2": "면적(m2)",
-                    "price": "거래가(억 원)",
-                    "floor": "층",
-                }
-            )
-            st.dataframe(sale_df.sort_values("거래일", ascending=False), use_container_width=True, hide_index=True)
-    with rent_tab:
-        if rent_history.empty:
-            st.caption("전세 거래 데이터가 없습니다.")
-        else:
-            rent_df = rent_history[["deal_date", "area_m2", "deposit", "floor"]].copy()
-            rent_df["deposit"] = rent_df["deposit"].map(to_eok)
-            rent_df = rent_df.rename(
-                columns={
-                    "deal_date": "거래일",
-                    "area_m2": "면적(m2)",
-                    "deposit": "보증금(억 원)",
-                    "floor": "층",
-                }
-            )
-            st.dataframe(rent_df.sort_values("거래일", ascending=False), use_container_width=True, hide_index=True)
+    with st.expander("상세: 원본 거래 이력", expanded=False):
+        sale_tab, rent_tab = st.tabs(["매매 이력", "전세 이력"])
+        with sale_tab:
+            if sale_history.empty:
+                st.caption("매매 거래 데이터가 없습니다.")
+            else:
+                sale_df = sale_history[["deal_date", "area_m2", "price", "floor"]].copy()
+                sale_df["price"] = sale_df["price"].map(to_eok)
+                sale_df = sale_df.rename(
+                    columns={
+                        "deal_date": "거래일",
+                        "area_m2": "면적(m2)",
+                        "price": "거래가(억 원)",
+                        "floor": "층",
+                    }
+                )
+                st.dataframe(
+                    sale_df.sort_values("거래일", ascending=False),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+        with rent_tab:
+            if rent_history.empty:
+                st.caption("전세 거래 데이터가 없습니다.")
+            else:
+                rent_df = rent_history[["deal_date", "area_m2", "deposit", "floor"]].copy()
+                rent_df["deposit"] = rent_df["deposit"].map(to_eok)
+                rent_df = rent_df.rename(
+                    columns={
+                        "deal_date": "거래일",
+                        "area_m2": "면적(m2)",
+                        "deposit": "보증금(억 원)",
+                        "floor": "층",
+                    }
+                )
+                st.dataframe(
+                    rent_df.sort_values("거래일", ascending=False),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+
+def _render_recent_analysis_history(recent_results: list[dict]) -> None:
+    st.divider()
+    with st.expander("상세: 최근 분석 이력", expanded=False):
+        if not recent_results:
+            st.caption("저장된 분석 결과가 없습니다.")
+            return
+
+        history_df = pd.DataFrame(recent_results)[
+            [
+                "complex_name",
+                "sale_price",
+                "required_cash",
+                "shortage_cash",
+                "bargain_score",
+                "liquidity_score",
+                "investment_score",
+                "complex_grade",
+                "created_at",
+            ]
+        ].rename(
+            columns={
+                "complex_name": "단지",
+                "sale_price": "매물가",
+                "required_cash": "총 필요 현금",
+                "shortage_cash": "추가 필요 현금",
+                "bargain_score": "급매 점수",
+                "liquidity_score": "유동성 점수",
+                "investment_score": "투자 점수",
+                "complex_grade": "단지 등급",
+                "created_at": "분석일",
+            }
+        )
+        history_df["추가 필요 현금"] = history_df["추가 필요 현금"].map(
+            lambda value: max(int(value or 0), 0)
+        )
+        for column in ["매물가", "총 필요 현금", "추가 필요 현금"]:
+            history_df[column] = history_df[column].map(format_compact_won)
+        history_df["단지 등급"] = history_df["단지 등급"].map(_complex_grade_label)
+        history_df = history_df.fillna("-")
+        st.dataframe(history_df, use_container_width=True, hide_index=True)
+
+        chart_df = pd.DataFrame(recent_results).head(10).copy()
+        chart_df["complex_grade_label"] = chart_df["complex_grade"].map(_complex_grade_label)
+        chart = px.bar(
+            chart_df,
+            x="complex_name",
+            y="investment_score",
+            color="complex_grade_label",
+            title="최근 투자 점수",
+            labels={
+                "complex_name": "단지",
+                "investment_score": "투자 점수",
+                "complex_grade_label": "단지 등급",
+            },
+        )
+        st.plotly_chart(chart, use_container_width=True)
 
 
 def _to_primary_mode(investment_type: str | None) -> str:
@@ -680,21 +885,144 @@ def _to_optional_float(value: float) -> float | None:
 
 
 def _format_optional_money(value: int | None) -> str:
-    if value is None:
+    if _is_missing_value(value):
         return "정보 없음"
     return format_compact_won(value)
 
 
+def _format_unlimited_money(value: int | None) -> str:
+    if _is_missing_value(value):
+        return "제한 없음"
+    return format_compact_won(value)
+
+
 def _format_optional_percent(value: float | None) -> str:
-    if value is None:
+    if _is_missing_value(value):
         return "정보 없음"
     return f"{value:.1f}%"
 
 
+def _format_ratio_percent(value: float | None) -> str:
+    if _is_missing_value(value):
+        return "정보 없음"
+    return f"{float(value) * 100:.1f}%"
+
+
+def _applied_method_label(value: object) -> str:
+    text = _display_value(value)
+    return {
+        "AUTO_RULE": "자동 계산",
+        "MANUAL_OVERRIDE": "수동 보정",
+    }.get(text, text)
+
+
+def _manual_ltv_source_label(value: object) -> str:
+    text = _display_value(value)
+    return {
+        "ANALYSIS_INPUT": "분석 화면 수동 보정",
+        "FINANCE_PROFILE": "자금 프로필 수동 LTV",
+        "UNKNOWN": "-",
+    }.get(text, text)
+
+
+def _cost_rule_method_label(manual_override: object) -> str:
+    return "수동 보정" if bool(manual_override) else "자동 계산"
+
+
+def _loan_term_label(value: object) -> str:
+    if _is_missing_value(value):
+        return "정보 없음"
+    return f"{int(value)}년"
+
+
+def _joined_labels(values: object) -> str:
+    if not values:
+        return "-"
+    return ", ".join(str(value) for value in values)
+
+
+def _rule_name(description: object, version: object) -> str:
+    description_text = _display_value(description)
+    version_text = _display_value(version)
+    if description_text != "-" and version_text != "-":
+        return f"{description_text} ({version_text})"
+    if description_text != "-":
+        return description_text
+    return version_text
+
+
+def _ltv_formula_label(loan_ltv: dict) -> str:
+    base_price = loan_ltv.get("base_price")
+    applied_ltv_rate = loan_ltv.get("applied_ltv_rate")
+    loan_amount_by_ltv = loan_ltv.get("loan_amount_by_ltv")
+    if (
+        _is_missing_value(base_price)
+        or _is_missing_value(applied_ltv_rate)
+        or _is_missing_value(loan_amount_by_ltv)
+    ):
+        return "정보 없음"
+    return (
+        f"{format_compact_won(base_price)} × {_format_ratio_percent(applied_ltv_rate)}"
+        f" = {_format_optional_money(loan_amount_by_ltv)}"
+    )
+
+
+def _missing_metric_reason(metric_key: str, value: object) -> str | None:
+    if not _is_missing_value(value):
+        return None
+    return {
+        "monthly_repayment": "금리 또는 대출기간 정보가 없어 계산하지 않았습니다.",
+        "dsr": "연소득 정보가 없어 계산하지 않았습니다.",
+    }.get(metric_key)
+
+
+def _is_missing_value(value: object) -> bool:
+    return value is None or pd.isna(value)
+
+
 def _format_efficiency(value: float | None) -> str:
-    if value is None:
+    if _is_missing_value(value):
         return "계산 불가"
     return f"{value:.2f}배"
+
+
+def _display_value(value: object, *, empty: str = "-") -> str:
+    if _is_missing_value(value):
+        return empty
+    text = str(value).strip()
+    if not text or text.lower() in {"none", "nan", "null"}:
+        return empty
+    return text
+
+
+def _source_label(value: object) -> str:
+    text = _display_value(value)
+    return {
+        "default": "기본값",
+        "manual override": "수동 보정",
+        "profile manual ltv": "자금 프로필 수동 LTV",
+        "rule application": "규칙 엔진 적용",
+        "region_policy_status": "지역 규제 상태",
+    }.get(text, text)
+
+
+def _liquidity_label(value: object) -> str:
+    text = _display_value(value, empty="정보 없음")
+    return {
+        "high liquidity": "유동성 높음",
+        "medium liquidity": "유동성 보통",
+        "normal liquidity": "유동성 보통",
+        "low liquidity": "유동성 낮음",
+    }.get(text, text)
+
+
+def _impact_level_label(value: object) -> str:
+    text = _display_value(value)
+    return {
+        "HIGH": "높음",
+        "MEDIUM": "보통",
+        "LOW": "낮음",
+    }.get(text, text)
 
 
 def _region_policy_type_label(value: str) -> str:
@@ -702,8 +1030,11 @@ def _region_policy_type_label(value: str) -> str:
         "REGULATED_AREA": "규제지역",
         "NON_REGULATED_AREA": "비규제지역",
         "LAND_TRANSACTION_PERMISSION": "토지거래허가구역",
+        "LAND_TRANSACTION_PERMISSION_AREA": "토지거래허가구역",
         "SPECULATION_OVERHEATED_DISTRICT": "투기과열지구",
+        "SPECULATION_OVERHEATED": "투기과열지구",
         "ADJUSTMENT_TARGET_AREA": "조정대상지역",
+        "ADJUSTMENT_TARGET": "조정대상지역",
     }.get(value, value)
 
 
@@ -719,6 +1050,12 @@ def _loan_region_type_label(value: str | None) -> str:
     return {
         "REGULATED": "규제지역",
         "NON_REGULATED": "비규제지역",
+        "ADJUSTMENT_TARGET": "조정대상지역",
+        "ADJUSTMENT_TARGET_AREA": "조정대상지역",
+        "SPECULATION_OVERHEATED": "투기과열지구",
+        "SPECULATION_OVERHEATED_DISTRICT": "투기과열지구",
+        "LAND_TRANSACTION_PERMISSION": "토지거래허가구역",
+        "LAND_TRANSACTION_PERMISSION_AREA": "토지거래허가구역",
         None: "-",
     }.get(value, str(value))
 
@@ -736,6 +1073,7 @@ def _complex_grade_label(value: str | None) -> str:
     labels = {
         "LEADER": "대장",
         "SUB_LEADER": "준대장",
+        "GENERAL": "일반",
         "NORMAL": "일반",
         "SMALL": "나홀로",
         "RISKY": "유동성주의",

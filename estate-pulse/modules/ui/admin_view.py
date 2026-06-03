@@ -12,7 +12,7 @@ from modules.services.policy_import_service import (
     CANDIDATE_STATUS_REJECTED,
 )
 from modules.ui.policy_event_admin_view import render_policy_event_admin_page
-from modules.utils.money_utils import format_compact_won
+from modules.utils.money_utils import format_compact_won, from_eok
 
 
 GROUP_ORDER = ("POLICY_EVENT", "REGION_POLICY", "LOAN", "TAX", "BROKERAGE", "UNKNOWN")
@@ -40,7 +40,7 @@ def render_admin_page(*, rule_admin_service, policy_import_service, complex_repo
             policy_import_service=policy_import_service,
         )
     with loan_tab:
-        _render_rule_table("대출 규칙", rule_admin_service.list_loan_rules(), "loan")
+        _render_loan_rule_tab(rule_admin_service=rule_admin_service)
     with tax_tab:
         _render_rule_table("세금 규칙", rule_admin_service.list_tax_rules(), "tax")
     with brokerage_tab:
@@ -68,6 +68,120 @@ def _render_rule_table(title: str, rows: list[dict[str, str]], kind: str) -> Non
     else:
         df = df.rename(columns=_brokerage_column_labels())
     st.dataframe(df, use_container_width=True, hide_index=True)
+
+
+def _render_loan_rule_tab(*, rule_admin_service) -> None:
+    st.subheader("대출 규칙")
+    st.caption(
+        "분석 계산에 직접 반영되는 대출 규칙입니다. 정책 이벤트는 참고 정보이므로 여기 등록된 룰과 분리됩니다."
+    )
+
+    with st.expander("대출 규칙 수동 등록", expanded=False):
+        st.caption(
+            "예: 15~20억 미만 주택 대출을 4억으로 제한하려면 가격 하한 15, 가격 상한 미만 20, 최대 대출액 4를 입력하세요."
+        )
+        st.info("최종 예상 대출은 LTV 기준 대출, DSR 기준 한도, 최대 대출액 중 가장 낮은 금액으로 제한됩니다.")
+        with st.form("manual_loan_rule_form"):
+            st.caption("규칙 버전은 저장 시 자동 채번됩니다.")
+            description = st.text_input("설명", value="관리자 수동 대출 규칙")
+
+            date_col1, date_col2 = st.columns(2)
+            effective_from = date_col1.date_input("적용 시작일")
+            use_end_date = date_col2.checkbox("종료일 입력", key="manual_loan_use_end_date")
+            effective_to = st.date_input("적용 종료일") if use_end_date else None
+
+            condition_col1, condition_col2, condition_col3 = st.columns(3)
+            region_type = condition_col1.selectbox(
+                "지역 유형",
+                rule_admin_service.list_loan_region_types(),
+                format_func=_loan_region_type_label,
+            )
+            buyer_type = condition_col2.selectbox(
+                "매수자 유형",
+                ["NO_HOME", "ONE_HOME", "MULTI_HOME"],
+                format_func=_buyer_type_label,
+            )
+            purpose = condition_col3.selectbox(
+                "목적",
+                ["OWNER_OCCUPIED", "INVESTMENT"],
+                format_func=_investment_purpose_label,
+            )
+
+            price_col1, price_col2, price_col3 = st.columns(3)
+            house_price_min_eok = price_col1.number_input(
+                "가격 하한 (억 원)",
+                min_value=0.0,
+                value=20.0,
+                step=0.1,
+                format="%.2f",
+            )
+            use_price_max = price_col2.checkbox("가격 상한 미만 입력")
+            house_price_max_exclusive_eok = price_col2.number_input(
+                "가격 상한 미만 (억 원)",
+                min_value=0.0,
+                value=20.0,
+                step=0.1,
+                format="%.2f",
+                help="체크하지 않으면 가격 상한 없이 저장합니다. 체크하면 입력 금액 미만까지 적용됩니다.",
+            )
+            max_loan_amount_eok = price_col3.number_input(
+                "최대 대출액 (억 원)",
+                min_value=0.0,
+                value=2.0,
+                step=0.1,
+                format="%.2f",
+                help="0을 입력하면 0원 대출 제한으로 저장됩니다. 제한 없음은 아래 체크박스를 사용하세요.",
+            )
+            unlimited_max_loan = price_col3.checkbox("최대 대출액 제한 없음")
+
+            ratio_col1, ratio_col2 = st.columns(2)
+            ltv_rate = ratio_col1.number_input(
+                "LTV",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.6,
+                step=0.05,
+                format="%.2f",
+            )
+            dsr_rate = ratio_col2.number_input(
+                "DSR",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.4,
+                step=0.05,
+                format="%.2f",
+            )
+
+            submitted = st.form_submit_button("대출 규칙 저장")
+
+        if submitted:
+            try:
+                rule_admin_service.create_manual_loan_rule(
+                    rule_version="",
+                    effective_from=effective_from.isoformat(),
+                    effective_to=effective_to.isoformat() if effective_to else None,
+                    region_type=region_type,
+                    buyer_type=buyer_type,
+                    purpose=purpose,
+                    house_price_min=int(from_eok(house_price_min_eok)),
+                    house_price_max=(
+                        int(from_eok(house_price_max_exclusive_eok)) - 1
+                        if use_price_max
+                        else None
+                    ),
+                    ltv_rate=float(ltv_rate),
+                    dsr_rate=float(dsr_rate),
+                    max_loan_amount=(
+                        None if unlimited_max_loan else int(from_eok(max_loan_amount_eok))
+                    ),
+                    description=description,
+                )
+                st.success("대출 규칙을 저장하고 계산 룰에 반영했습니다.")
+                st.rerun()
+            except Exception as exc:
+                st.error(str(exc))
+
+    _render_rule_table("현재 적용 대출 규칙", rule_admin_service.list_loan_rules(), "loan")
 
 
 def _render_region_policy_tab(*, rule_admin_service, complex_repository=None) -> None:
@@ -545,7 +659,13 @@ def _render_loan_preview(*, candidate: dict, policy_import_service) -> None:
     )
     region_type = preview_cols[1].selectbox(
         "지역 유형",
-        ["NON_REGULATED", "REGULATED"],
+        [
+            "NON_REGULATED",
+            "REGULATED",
+            "LAND_TRANSACTION_PERMISSION",
+            "SPECULATION_OVERHEATED_DISTRICT",
+            "ADJUSTMENT_TARGET_AREA",
+        ],
         format_func=_loan_region_type_label,
         key=f"preview_region_{candidate['id']}",
     )
@@ -735,6 +855,12 @@ def _loan_region_type_label(value: str) -> str:
     return {
         "NON_REGULATED": "비규제지역",
         "REGULATED": "규제지역",
+        "LAND_TRANSACTION_PERMISSION": "토지거래허가구역",
+        "LAND_TRANSACTION_PERMISSION_AREA": "토지거래허가구역",
+        "SPECULATION_OVERHEATED": "투기과열지구",
+        "SPECULATION_OVERHEATED_DISTRICT": "투기과열지구",
+        "ADJUSTMENT_TARGET": "조정대상지역",
+        "ADJUSTMENT_TARGET_AREA": "조정대상지역",
     }.get(value, value)
 
 

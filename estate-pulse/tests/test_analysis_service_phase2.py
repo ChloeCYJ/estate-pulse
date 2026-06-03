@@ -130,6 +130,32 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
         self.assertEqual(result["bargain_score"], 55)
         self.assertEqual(result["region_policy_source"], "default")
 
+    def test_analysis_result_includes_applied_rules_trace(self) -> None:
+        result = self.analysis_service.run_analysis(
+            listing_id=self.listing_id,
+            finance_profile_id=self.profile_id,
+            benchmarks=BenchmarkInputs(reference_date=date(2026, 5, 27)),
+            save_result=False,
+        )
+
+        applied_rules = result["applied_rules"]
+        loan_ltv = applied_rules["loan_ltv"]
+        self.assertEqual(loan_ltv["base_price"], 900_000_000)
+        self.assertEqual(loan_ltv["ltv_method"], "AUTO_RULE")
+        self.assertFalse(loan_ltv["manual_ltv_used"])
+        self.assertEqual(loan_ltv["applied_region_type"], "NON_REGULATED")
+        self.assertIsNotNone(loan_ltv["matched_rule_version"])
+        self.assertEqual(loan_ltv["loan_amount_by_ltv"], 540_000_000)
+        self.assertEqual(loan_ltv["expected_loan_amount"], 540_000_000)
+        self.assertEqual(
+            applied_rules["dsr"]["missing_reason"],
+            "연소득 정보가 없어 계산하지 않았습니다.",
+        )
+        self.assertEqual(
+            applied_rules["monthly_repayment"]["missing_reason"],
+            "금리 또는 대출기간 정보가 없어 계산하지 않았습니다.",
+        )
+
     def test_jeonse_ratio_fallback_uses_rent_transactions(self) -> None:
         result = self.analysis_service.run_analysis(
             listing_id=self.listing_id,
@@ -163,6 +189,12 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
         self.assertEqual(result["loan_terms"]["ltv_source"], "manual override")
         self.assertEqual(result["loan_terms"]["applied_ltv_rate"], 0.2)
         self.assertEqual(result["expected_loan_amount"], 180_000_000)
+        self.assertEqual(result["applied_rules"]["loan_ltv"]["ltv_method"], "MANUAL_OVERRIDE")
+        self.assertTrue(result["applied_rules"]["loan_ltv"]["manual_ltv_used"])
+        self.assertEqual(
+            result["applied_rules"]["loan_ltv"]["manual_ltv_source"],
+            "FINANCE_PROFILE",
+        )
 
     def test_sell_owned_real_estate_funding_mode_uses_net_sale_cash(self) -> None:
         replacement_profile_id = self.finance_repository.create(
@@ -241,7 +273,7 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
         )
 
         policy_types = {item["policy_type"] for item in result["active_region_policies"]}
-        self.assertEqual(result["resolved_region_type"], "REGULATED")
+        self.assertEqual(result["resolved_region_type"], "ADJUSTMENT_TARGET_AREA")
         self.assertEqual(
             policy_types,
             {"LAND_TRANSACTION_PERMISSION", "ADJUSTMENT_TARGET_AREA"},

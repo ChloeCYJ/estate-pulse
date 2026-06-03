@@ -1,6 +1,17 @@
 from __future__ import annotations
 
+import json
+from datetime import date, datetime
+
 from modules.utils.money_utils import format_won
+
+LOAN_REGION_TYPE_OPTIONS = (
+    "NON_REGULATED",
+    "REGULATED",
+    "LAND_TRANSACTION_PERMISSION",
+    "SPECULATION_OVERHEATED_DISTRICT",
+    "ADJUSTMENT_TARGET_AREA",
+)
 
 
 class RuleAdminService:
@@ -10,10 +21,14 @@ class RuleAdminService:
         rule_runtime_service,
         region_policy_service=None,
         policy_event_service=None,
+        policy_import_repository=None,
+        rule_candidate_repository=None,
     ) -> None:
         self.rule_runtime_service = rule_runtime_service
         self.region_policy_service = region_policy_service
         self.policy_event_service = policy_event_service
+        self.policy_import_repository = policy_import_repository
+        self.rule_candidate_repository = rule_candidate_repository
 
     def list_loan_rules(self) -> list[dict[str, str]]:
         rows: list[dict[str, str]] = []
@@ -36,6 +51,79 @@ class RuleAdminService:
                 }
             )
         return rows
+
+    def list_loan_region_types(self) -> list[str]:
+        return list(LOAN_REGION_TYPE_OPTIONS)
+
+    def create_manual_loan_rule(
+        self,
+        *,
+        rule_version: str,
+        effective_from: str,
+        effective_to: str | None,
+        region_type: str,
+        buyer_type: str,
+        purpose: str,
+        house_price_min: int,
+        house_price_max: int | None,
+        ltv_rate: float,
+        dsr_rate: float,
+        max_loan_amount: int | None,
+        description: str,
+    ) -> int:
+        if self.policy_import_repository is None or self.rule_candidate_repository is None:
+            raise ValueError("Manual loan rule registration is unavailable.")
+
+        payload = _normalize_manual_loan_rule(
+            rule_version=rule_version,
+            effective_from=effective_from,
+            effective_to=effective_to,
+            region_type=region_type,
+            buyer_type=buyer_type,
+            purpose=purpose,
+            house_price_min=house_price_min,
+            house_price_max=house_price_max,
+            ltv_rate=ltv_rate,
+            dsr_rate=dsr_rate,
+            max_loan_amount=max_loan_amount,
+            description=description,
+        )
+        policy_import_id = self.policy_import_repository.create(
+            source_text=f"관리자 수동 대출 규칙 등록: {payload['description']}",
+            source_name="관리자 수동 입력",
+            target_rule_type="LOAN",
+            effective_date=payload["effective_from"],
+            parser_name="manual_admin",
+            parser_status="APPLIED",
+        )
+        return self.rule_candidate_repository.create(
+            policy_import_id=policy_import_id,
+            target_rule_type="LOAN",
+            rule_name=_loan_rule_name(
+                payload["purpose"],
+                payload["region_type"],
+                payload["buyer_type"],
+            ),
+            rule_version=payload["rule_version"],
+            previous_rule_json=None,
+            proposed_rule_json=json.dumps(payload, ensure_ascii=False, sort_keys=True),
+            changed_fields_json=json.dumps(
+                [
+                    "region_type",
+                    "buyer_type",
+                    "purpose",
+                    "house_price_min",
+                    "house_price_max",
+                    "ltv_rate",
+                    "dsr_rate",
+                    "max_loan_amount",
+                ],
+                ensure_ascii=False,
+            ),
+            confidence=1.0,
+            warnings="관리자 수동 등록 규칙입니다. 기존 가격 구간과 겹치면 더 최신/구체적인 룰이 우선 적용됩니다.",
+            status="APPLIED",
+        )
 
     def list_tax_rules(self) -> list[dict[str, str]]:
         rows: list[dict[str, str]] = []
@@ -194,6 +282,68 @@ def _format_ratio(value: float) -> str:
     return f"{value * 100:.1f}%"
 
 
+def _normalize_manual_loan_rule(
+    *,
+    rule_version: str,
+    effective_from: str,
+    effective_to: str | None,
+    region_type: str,
+    buyer_type: str,
+    purpose: str,
+    house_price_min: int,
+    house_price_max: int | None,
+    ltv_rate: float,
+    dsr_rate: float,
+    max_loan_amount: int | None,
+    description: str,
+) -> dict:
+    normalized_rule_version = rule_version.strip() or _manual_rule_version()
+    normalized = {
+        "rule_version": normalized_rule_version,
+        "effective_from": str(effective_from),
+        "effective_to": effective_to or None,
+        "region_type": str(region_type),
+        "buyer_type": str(buyer_type),
+        "purpose": str(purpose),
+        "house_price_min": int(house_price_min),
+        "house_price_max": None if house_price_max is None else int(house_price_max),
+        "ltv_rate": float(ltv_rate),
+        "dsr_rate": float(dsr_rate),
+        "max_loan_amount": None if max_loan_amount is None else int(max_loan_amount),
+        "description": description.strip() or "관리자 수동 대출 규칙",
+    }
+    _validate_manual_loan_rule(normalized)
+    return normalized
+
+
+def _validate_manual_loan_rule(rule: dict) -> None:
+    date.fromisoformat(rule["effective_from"])
+    if rule["effective_to"] is not None:
+        date.fromisoformat(rule["effective_to"])
+        if rule["effective_from"] > rule["effective_to"]:
+            raise ValueError("적용 시작일은 종료일보다 늦을 수 없습니다.")
+    if rule["region_type"] not in LOAN_REGION_TYPE_OPTIONS:
+        raise ValueError("지원하지 않는 지역 유형입니다.")
+    if rule["buyer_type"] not in {"NO_HOME", "ONE_HOME", "MULTI_HOME"}:
+        raise ValueError("지원하지 않는 매수자 유형입니다.")
+    if rule["purpose"] not in {"OWNER_OCCUPIED", "INVESTMENT"}:
+        raise ValueError("지원하지 않는 목적입니다.")
+    if rule["house_price_min"] < 0:
+        raise ValueError("가격 하한은 0 이상이어야 합니다.")
+    if rule["house_price_max"] is not None and rule["house_price_min"] > rule["house_price_max"]:
+        raise ValueError("가격 하한은 가격 상한보다 작거나 같아야 합니다.")
+    if not 0 <= rule["ltv_rate"] <= 1:
+        raise ValueError("LTV는 0~1 범위여야 합니다.")
+    if not 0 <= rule["dsr_rate"] <= 1:
+        raise ValueError("DSR은 0~1 범위여야 합니다.")
+    if rule["max_loan_amount"] is not None and rule["max_loan_amount"] < 0:
+        raise ValueError("최대 대출액은 0 이상이어야 합니다.")
+
+
+def _manual_rule_version() -> str:
+    return f"manual-loan-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+
+
 def _format_money_or_unlimited(value: int | None) -> str:
     if value is None:
         return "제한 없음"
@@ -241,6 +391,12 @@ def _region_type_label(value: str) -> str:
     return {
         "NON_REGULATED": "비규제지역",
         "REGULATED": "규제지역",
+        "LAND_TRANSACTION_PERMISSION": "토지거래허가구역",
+        "LAND_TRANSACTION_PERMISSION_AREA": "토지거래허가구역",
+        "SPECULATION_OVERHEATED": "투기과열지구",
+        "SPECULATION_OVERHEATED_DISTRICT": "투기과열지구",
+        "ADJUSTMENT_TARGET": "조정대상지역",
+        "ADJUSTMENT_TARGET_AREA": "조정대상지역",
     }.get(value, value)
 
 

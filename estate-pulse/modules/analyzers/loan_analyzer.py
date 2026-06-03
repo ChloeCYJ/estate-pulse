@@ -17,9 +17,11 @@ def select_loan_rule(
 ) -> LoanRule:
     """Return the active loan rule that matches the input conditions."""
     target_date = reference_date or date.today()
+    matching_rules: list[LoanRule] = []
+    region_candidates = _loan_region_candidates(region_type)
 
     for rule in rules or get_loan_rules():
-        if rule.region_type != region_type:
+        if rule.region_type not in region_candidates:
             continue
         if rule.buyer_type != buyer_type:
             continue
@@ -29,9 +31,34 @@ def select_loan_rule(
             continue
         if not rule.matches_price(sale_price):
             continue
-        return rule
+        matching_rules.append(rule)
+
+    if matching_rules:
+        matching_rules.sort(
+            key=lambda rule: (
+                rule.region_type == region_type,
+                date.fromisoformat(rule.effective_from),
+                rule.house_price_min,
+                rule.house_price_max or 10**30,
+            ),
+            reverse=True,
+        )
+        return matching_rules[0]
 
     raise ValueError("No matching loan rule was found.")
+
+
+def _loan_region_candidates(region_type: str) -> tuple[str, ...]:
+    if region_type in {
+        "LAND_TRANSACTION_PERMISSION",
+        "LAND_TRANSACTION_PERMISSION_AREA",
+        "SPECULATION_OVERHEATED",
+        "SPECULATION_OVERHEATED_DISTRICT",
+        "ADJUSTMENT_TARGET",
+        "ADJUSTMENT_TARGET_AREA",
+    }:
+        return (region_type, "REGULATED")
+    return (region_type,)
 
 
 def calculate_loan_terms(

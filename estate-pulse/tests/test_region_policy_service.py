@@ -60,9 +60,9 @@ class RegionPolicyServiceTests(unittest.TestCase):
             reference_date=date(2026, 5, 30),
         )
 
-        self.assertEqual(result["region_type"], "REGULATED")
+        self.assertEqual(result["region_type"], "LAND_TRANSACTION_PERMISSION")
         self.assertEqual(result["source"], "region_policy_status")
-        self.assertEqual(result["matched_loan_policy"]["policy_type"], "REGULATED_AREA")
+        self.assertEqual(result["matched_loan_policy"]["policy_type"], "LAND_TRANSACTION_PERMISSION")
         self.assertEqual(len(result["active_policies"]), 3)
 
     def test_list_policy_types_excludes_legacy_generic_regulated_area(self) -> None:
@@ -147,7 +147,7 @@ class RegionPolicyServiceTests(unittest.TestCase):
         )
 
         policy_types = {item["policy_type"] for item in result["active_policies"]}
-        self.assertEqual(result["region_type"], "REGULATED")
+        self.assertEqual(result["region_type"], "ADJUSTMENT_TARGET_AREA")
         self.assertEqual(
             policy_types,
             {

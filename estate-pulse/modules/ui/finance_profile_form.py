@@ -30,7 +30,9 @@ def render_finance_profile_page(finance_repository) -> None:
             st.caption("등록된 자금 프로필이 없습니다.")
             return
 
-        profile_df = pd.DataFrame(profiles)[
+        profile_df = pd.DataFrame(profiles).copy()
+        profile_df["existing_debt"] = profile_df.apply(_calculate_existing_debt_won, axis=1)
+        profile_df = profile_df[
             [
                 "id",
                 "cash_amount",
@@ -107,7 +109,7 @@ def _render_profile_form(
     include_delete: bool = False,
 ) -> dict | str | None:
     selected = selected or {}
-    with st.form(form_key):
+    with st.container():
         st.markdown("### 현금")
         cash_amount_eok = st.number_input(
             "보유 현금 (억원) *",
@@ -120,17 +122,8 @@ def _render_profile_form(
         )
 
         st.markdown("### 부채")
-        debt_col1, debt_col2, debt_col3 = st.columns(3)
-        existing_debt_eok = debt_col1.number_input(
-            "기존 대출 총액 (억원)",
-            min_value=0.0,
-            step=0.1,
-            value=to_eok(selected.get("existing_debt") or 0),
-            format="%.2f",
-            help="DSR 계산에 반영되는 전체 기존 대출 총액입니다.",
-            key=f"{form_key}_existing_debt",
-        )
-        credit_loan_balance_eok = debt_col2.number_input(
+        debt_col1, debt_col2 = st.columns(2)
+        credit_loan_balance_eok = debt_col1.number_input(
             "신용대출 잔액 (억원)",
             min_value=0.0,
             step=0.1,
@@ -138,7 +131,7 @@ def _render_profile_form(
             format="%.2f",
             key=f"{form_key}_credit_loan_balance",
         )
-        other_loan_balance_eok = debt_col3.number_input(
+        other_loan_balance_eok = debt_col2.number_input(
             "기타 대출 잔액 (억원)",
             min_value=0.0,
             step=0.1,
@@ -172,6 +165,16 @@ def _render_profile_form(
             format="%.2f",
             key=f"{form_key}_owned_real_estate_debt",
         )
+        existing_debt_eok = _calculate_existing_debt_eok(
+            owned_real_estate_debt_eok=owned_real_estate_debt_eok,
+            credit_loan_balance_eok=credit_loan_balance_eok,
+            other_loan_balance_eok=other_loan_balance_eok,
+        )
+        st.metric(
+            "기존 대출 총액",
+            format_compact_won(from_eok(existing_debt_eok)),
+            help="보유 부동산 대출 잔액 + 신용대출 잔액 + 기타 대출 잔액의 자동 합산값입니다.",
+        )
 
         st.markdown("### 대출 설정")
         st.info("자동 계산 LTV: 분석 시 선택한 매물의 지역 규제와 대출 규칙 엔진으로 계산됩니다.")
@@ -194,10 +197,10 @@ def _render_profile_form(
 
         if include_delete:
             col_update, col_delete = st.columns(2)
-            submitted = col_update.form_submit_button(submit_label)
-            delete_clicked = col_delete.form_submit_button("삭제")
+            submitted = col_update.button(submit_label, key=f"{form_key}_submit")
+            delete_clicked = col_delete.button("삭제", key=f"{form_key}_delete")
         else:
-            submitted = st.form_submit_button(submit_label)
+            submitted = st.button(submit_label, key=f"{form_key}_submit")
             delete_clicked = False
 
     if delete_clicked:
@@ -207,7 +210,6 @@ def _render_profile_form(
 
     payload = _build_profile_payload(
         cash_amount_eok=cash_amount_eok,
-        existing_debt_eok=existing_debt_eok,
         credit_loan_balance_eok=credit_loan_balance_eok,
         other_loan_balance_eok=other_loan_balance_eok,
         home_count=int(home_count),
@@ -229,7 +231,6 @@ def _render_profile_form(
 def _build_profile_payload(
     *,
     cash_amount_eok: float,
-    existing_debt_eok: float,
     credit_loan_balance_eok: float,
     other_loan_balance_eok: float,
     home_count: int,
@@ -242,7 +243,15 @@ def _build_profile_payload(
     return {
         "cash_amount": int(from_eok(cash_amount_eok)),
         "annual_income": selected.get("annual_income"),
-        "existing_debt": int(from_eok(existing_debt_eok)),
+        "existing_debt": int(
+            from_eok(
+                _calculate_existing_debt_eok(
+                    owned_real_estate_debt_eok=owned_real_estate_debt_eok,
+                    credit_loan_balance_eok=credit_loan_balance_eok,
+                    other_loan_balance_eok=other_loan_balance_eok,
+                )
+            )
+        ),
         "interest_rate": selected.get("interest_rate"),
         "ltv_limit": selected.get("ltv_limit"),
         "dsr_limit": selected.get("dsr_limit"),
@@ -254,6 +263,21 @@ def _build_profile_payload(
         "use_manual_ltv": use_manual_ltv,
         "manual_ltv_rate": manual_ltv_rate,
     }
+
+
+def _calculate_existing_debt_eok(
+    *,
+    owned_real_estate_debt_eok: float,
+    credit_loan_balance_eok: float,
+    other_loan_balance_eok: float,
+) -> float:
+    return owned_real_estate_debt_eok + credit_loan_balance_eok + other_loan_balance_eok
+
+
+def _calculate_existing_debt_won(profile: dict | pd.Series) -> int:
+    return int(profile.get("owned_real_estate_debt") or 0) + int(
+        profile.get("credit_loan_balance") or 0
+    ) + int(profile.get("other_loan_balance") or 0)
 
 
 def _format_ltv_or_dash(value: float | None) -> str:

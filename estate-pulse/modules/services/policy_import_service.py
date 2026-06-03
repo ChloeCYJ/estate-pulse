@@ -1296,7 +1296,16 @@ def _format_changed_value(target_rule_type: str, field_path: str, value):
     if field_path.endswith(".max_sale_price"):
         return f"{int(value):,}원"
     if field_path == "region_type":
-        return {"NON_REGULATED": "비규제지역", "REGULATED": "규제지역"}.get(str(value), str(value))
+        return {
+            "NON_REGULATED": "비규제지역",
+            "REGULATED": "규제지역",
+            "LAND_TRANSACTION_PERMISSION": "토지거래허가구역",
+            "LAND_TRANSACTION_PERMISSION_AREA": "토지거래허가구역",
+            "SPECULATION_OVERHEATED": "투기과열지구",
+            "SPECULATION_OVERHEATED_DISTRICT": "투기과열지구",
+            "ADJUSTMENT_TARGET": "조정대상지역",
+            "ADJUSTMENT_TARGET_AREA": "조정대상지역",
+        }.get(str(value), str(value))
     if field_path == "buyer_type":
         return {"NO_HOME": "무주택", "ONE_HOME": "1주택", "MULTI_HOME": "다주택"}.get(
             str(value), str(value)

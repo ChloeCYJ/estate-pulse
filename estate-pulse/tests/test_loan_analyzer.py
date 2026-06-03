@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 import unittest
 
+from config.loan_rules import LoanRule
 from modules.analyzers.loan_analyzer import calculate_loan_terms, select_loan_rule
 
 
@@ -75,6 +76,63 @@ class LoanAnalyzerRuleTests(unittest.TestCase):
         self.assertEqual(loan_terms["loan_amount_by_ltv"], 600_000_000)
         self.assertEqual(loan_terms["max_loan_amount"], 600_000_000)
         self.assertEqual(loan_terms["final_loan_amount"], 600_000_000)
+
+    def test_specific_region_type_falls_back_to_regulated_rule(self) -> None:
+        loan_terms = calculate_loan_terms(
+            sale_price=2_000_000_000,
+            region_type="LAND_TRANSACTION_PERMISSION",
+            buyer_type="NO_HOME",
+            purpose="OWNER_OCCUPIED",
+            reference_date=date(2026, 5, 28),
+        )
+
+        self.assertEqual(loan_terms["region_type"], "REGULATED")
+        self.assertEqual(loan_terms["final_loan_amount"], 600_000_000)
+
+    def test_specific_region_rule_is_preferred_over_generic_regulated_rule(self) -> None:
+        rules = [
+            LoanRule(
+                rule_version="generic-regulated",
+                effective_from="2026-05-01",
+                effective_to=None,
+                region_type="REGULATED",
+                buyer_type="NO_HOME",
+                purpose="OWNER_OCCUPIED",
+                house_price_min=1_500_000_000,
+                house_price_max=1_999_999_999,
+                ltv_rate=0.40,
+                dsr_rate=0.40,
+                max_loan_amount=600_000_000,
+                description="generic regulated",
+            ),
+            LoanRule(
+                rule_version="land-permission-15-20b",
+                effective_from="2026-05-01",
+                effective_to=None,
+                region_type="LAND_TRANSACTION_PERMISSION",
+                buyer_type="NO_HOME",
+                purpose="OWNER_OCCUPIED",
+                house_price_min=1_500_000_000,
+                house_price_max=1_999_999_999,
+                ltv_rate=0.40,
+                dsr_rate=0.40,
+                max_loan_amount=400_000_000,
+                description="15억 이상 20억 미만 토허제 4억 제한",
+            ),
+        ]
+
+        loan_terms = calculate_loan_terms(
+            sale_price=1_800_000_000,
+            region_type="LAND_TRANSACTION_PERMISSION",
+            buyer_type="NO_HOME",
+            purpose="OWNER_OCCUPIED",
+            reference_date=date(2026, 6, 3),
+            rules=rules,
+        )
+
+        self.assertEqual(loan_terms["rule_version"], "land-permission-15-20b")
+        self.assertEqual(loan_terms["max_loan_amount"], 400_000_000)
+        self.assertEqual(loan_terms["final_loan_amount"], 400_000_000)
 
     def test_unlimited_max_loan_amount_uses_ltv_limit(self) -> None:
         loan_terms = calculate_loan_terms(
