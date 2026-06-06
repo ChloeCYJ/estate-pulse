@@ -12,7 +12,7 @@ from modules.analyzers.cash_flow_analyzer import (
     calculate_shortage_cash,
 )
 from modules.analyzers.investment_analyzer import calculate_investment_metrics
-from modules.analyzers.loan_analyzer import calculate_loan_terms
+from modules.analyzers.loan_analyzer import calculate_loan_terms, select_loan_rule
 from modules.analyzers.owner_occupied_analyzer import calculate_owner_occupied_metrics
 from modules.analyzers.ranking_analyzer import calculate_overall_investment_score
 from modules.analyzers.risk_analyzer import summarize_risk
@@ -31,6 +31,12 @@ OWNER_OCCUPIED = "OWNER_OCCUPIED"
 CASH_ONLY = "CASH_ONLY"
 SELL_OWNED_REAL_ESTATE = "SELL_OWNED_REAL_ESTATE"
 FUNDING_MODES = (CASH_ONLY, SELL_OWNED_REAL_ESTATE)
+BUYER_TYPES = ("NO_HOME", "ONE_HOME", "MULTI_HOME")
+SPECIFIC_REGULATED_REGION_TYPES = (
+    "LAND_TRANSACTION_PERMISSION",
+    "SPECULATION_OVERHEATED_DISTRICT",
+    "ADJUSTMENT_TARGET_AREA",
+)
 
 
 @dataclass
@@ -44,7 +50,7 @@ class BenchmarkInputs:
     analysis_mode: str | None = None
     reference_date: date | None = None
     region_type: str | None = None
-    buyer_type: str = "NO_HOME"
+    buyer_type: str | None = None
     purpose: str = "INVESTMENT"
     tax_rule_version: str | None = None
     brokerage_rule_version: str | None = None
@@ -104,6 +110,10 @@ class AnalysisService:
             finance_profile=finance_profile,
             funding_mode=funding_mode,
         )
+        resolved_buyer_type = _resolve_buyer_type(
+            benchmark_buyer_type=benchmarks.buyer_type,
+            finance_profile=finance_profile,
+        )
 
         stored_investment_type = (
             listing.get("effective_investment_type")
@@ -117,6 +127,7 @@ class AnalysisService:
             stored_investment_type=stored_investment_type,
             primary_user_mode=primary_user_mode,
         )
+        analysis_purpose = OWNER_OCCUPIED if primary_user_mode == OWNER_OCCUPIED else benchmarks.purpose
         market_context = self.get_transaction_context(
             listing_id=listing_id,
             benchmarks=benchmarks,
@@ -136,10 +147,8 @@ class AnalysisService:
         )
         relevant_policy_events = self._resolve_relevant_policy_events(
             complex_row=complex_row,
-            buyer_type=benchmarks.buyer_type,
-            investment_purpose=(
-                OWNER_OCCUPIED if primary_user_mode == OWNER_OCCUPIED else benchmarks.purpose
-            ),
+            buyer_type=resolved_buyer_type,
+            investment_purpose=analysis_purpose,
             reference_date=benchmarks.reference_date,
         )
 
@@ -148,11 +157,19 @@ class AnalysisService:
             if self.rule_runtime_service is not None
             else None
         )
+        loan_rule_buyer_type = _resolve_loan_rule_buyer_type(
+            sale_price=listing["sale_price"],
+            region_type=region_context["region_type"],
+            buyer_type=resolved_buyer_type,
+            purpose=analysis_purpose,
+            reference_date=benchmarks.reference_date,
+            rules=active_loan_rules,
+        )
         loan_terms = calculate_loan_terms(
             sale_price=listing["sale_price"],
             region_type=region_context["region_type"],
-            buyer_type=benchmarks.buyer_type,
-            purpose=OWNER_OCCUPIED if primary_user_mode == OWNER_OCCUPIED else benchmarks.purpose,
+            buyer_type=loan_rule_buyer_type,
+            purpose=analysis_purpose,
             reference_date=benchmarks.reference_date,
             ltv_rate_override=_resolve_ltv_rate_override(
                 analysis_override=benchmarks.ltv_rate_override,
@@ -299,6 +316,7 @@ class AnalysisService:
             investment_score=investment_score_result["investment_score"],
         )
         applied_rules = _build_applied_rules_trace(
+            primary_user_mode=primary_user_mode,
             listing=listing,
             finance_profile=finance_profile,
             benchmarks=benchmarks,
@@ -320,6 +338,8 @@ class AnalysisService:
             "expected_loan_amount": expected_loan_amount,
             "loan_rule_version": loan_terms["rule_version"],
             "loan_terms": loan_terms,
+            "resolved_buyer_type": resolved_buyer_type,
+            "loan_rule_buyer_type": loan_rule_buyer_type,
             "resolved_region_type": region_context["region_type"],
             "region_policy_source": region_context["source"],
             "active_region_policies": region_context["active_policies"],
@@ -667,8 +687,57 @@ def _resolve_ltv_rate_override(
     return float(manual_ltv_rate)
 
 
+def _resolve_buyer_type(
+    *,
+    benchmark_buyer_type: str | None,
+    finance_profile: dict,
+) -> str:
+    normalized_buyer_type = str(benchmark_buyer_type or "").strip().upper()
+    if normalized_buyer_type in BUYER_TYPES:
+        return normalized_buyer_type
+    derived_buyer_type = _derive_buyer_type_from_home_count(finance_profile.get("home_count"))
+    return derived_buyer_type or "NO_HOME"
+
+
+def _derive_buyer_type_from_home_count(home_count: object) -> str | None:
+    if home_count in (None, ""):
+        return None
+    count = int(home_count)
+    if count <= 0:
+        return "NO_HOME"
+    if count == 1:
+        return "ONE_HOME"
+    return "MULTI_HOME"
+
+
+def _resolve_loan_rule_buyer_type(
+    *,
+    sale_price: int,
+    region_type: str,
+    buyer_type: str,
+    purpose: str,
+    reference_date: date | None,
+    rules,
+) -> str:
+    try:
+        select_loan_rule(
+            sale_price=sale_price,
+            region_type=region_type,
+            buyer_type=buyer_type,
+            purpose=purpose,
+            reference_date=reference_date,
+            rules=rules,
+        )
+        return buyer_type
+    except ValueError:
+        if buyer_type == "NO_HOME":
+            raise
+        return "NO_HOME"
+
+
 def _build_applied_rules_trace(
     *,
+    primary_user_mode: str,
     listing: dict,
     finance_profile: dict,
     benchmarks: BenchmarkInputs,
@@ -684,6 +753,17 @@ def _build_applied_rules_trace(
     loan_amount_source = str(loan_terms.get("loan_amount_source") or "")
     manual_ltv_enabled = ltv_source == "manual override"
     manual_override_items = _build_manual_override_items(benchmarks)
+    dsr_missing_reason = _build_dsr_missing_reason(
+        primary_user_mode=primary_user_mode,
+        finance_profile=finance_profile,
+        monthly_repayment=mode_metrics.get("monthly_repayment"),
+        dsr=mode_metrics.get("dsr"),
+    )
+    monthly_repayment_missing_reason = _build_monthly_repayment_missing_reason(
+        primary_user_mode=primary_user_mode,
+        finance_profile=finance_profile,
+        monthly_repayment=mode_metrics.get("monthly_repayment"),
+    )
 
     return {
         "loan_ltv": {
@@ -693,7 +773,9 @@ def _build_applied_rules_trace(
             "dsr_based_loan_limit": loan_terms.get("dsr_based_loan_limit"),
             "max_loan_amount": loan_terms.get("max_loan_amount"),
             "policy_capped_loan_amount": loan_terms.get("policy_capped_loan_amount"),
+            "manual_loan_amount_override": loan_terms.get("manual_loan_amount_override"),
             "expected_loan_amount": int(expected_loan_amount),
+            "final_limiting_factor": _build_final_limiting_factor_label(loan_terms),
             "ltv_method": "MANUAL_OVERRIDE" if manual_ltv_enabled else "AUTO_RULE",
             "ltv_source": ltv_source or None,
             "manual_ltv_used": manual_ltv_enabled,
@@ -708,32 +790,33 @@ def _build_applied_rules_trace(
             ),
             "loan_amount_source": loan_amount_source or None,
             "applied_region_type": region_context.get("region_type"),
+            "matched_rule_region_type": loan_terms.get("region_type"),
+            "used_regulated_fallback": _used_regulated_loan_rule_fallback(
+                applied_region_type=region_context.get("region_type"),
+                matched_rule_region_type=loan_terms.get("region_type"),
+            ),
+            "fallback_notice": _build_loan_rule_fallback_notice(
+                applied_region_type=region_context.get("region_type"),
+                matched_rule_region_type=loan_terms.get("region_type"),
+            ),
             "region_policy_source": region_context.get("source"),
             "active_region_policies": region_context.get("active_policies") or [],
             "matched_rule_version": loan_terms.get("rule_version"),
             "matched_rule_description": loan_terms.get("rule_description"),
-            "calculation_formula": "base_price * applied_ltv_rate = expected_loan_amount",
+            "calculation_formula": "base_price * applied_ltv_rate = loan_amount_by_ltv",
         },
         "dsr": {
             "annual_income": finance_profile.get("annual_income"),
             "dsr": mode_metrics.get("dsr"),
             "applied_dsr_rate": loan_terms.get("applied_dsr_rate"),
             "dsr_based_loan_limit": loan_terms.get("dsr_based_loan_limit"),
-            "missing_reason": (
-                "연소득 정보가 없어 계산하지 않았습니다."
-                if mode_metrics.get("dsr") is None
-                else None
-            ),
+            "missing_reason": dsr_missing_reason,
         },
         "monthly_repayment": {
             "annual_interest_rate": finance_profile.get("interest_rate"),
             "loan_term_years": 30,
             "monthly_repayment": mode_metrics.get("monthly_repayment"),
-            "missing_reason": (
-                "금리 또는 대출기간 정보가 없어 계산하지 않았습니다."
-                if mode_metrics.get("monthly_repayment") is None
-                else None
-            ),
+            "missing_reason": monthly_repayment_missing_reason,
         },
         "transaction_costs": {
             "tax_rule_version": tax_breakdown.get("applied_tax_rule_version"),
@@ -757,6 +840,105 @@ def _manual_ltv_source(*, benchmarks: BenchmarkInputs, finance_profile: dict) ->
     if finance_profile.get("use_manual_ltv"):
         return "FINANCE_PROFILE"
     return "UNKNOWN"
+
+
+def _build_monthly_repayment_missing_reason(
+    *,
+    primary_user_mode: str,
+    finance_profile: dict,
+    monthly_repayment: int | None,
+) -> str | None:
+    if monthly_repayment is not None:
+        return None
+    if primary_user_mode != OWNER_OCCUPIED:
+        return "실거주 분석에서만 계산합니다."
+    if not finance_profile.get("interest_rate"):
+        return "금리 정보가 없어 계산하지 않았습니다."
+    return "대출 상환 조건 정보가 없어 계산하지 않았습니다."
+
+
+def _build_dsr_missing_reason(
+    *,
+    primary_user_mode: str,
+    finance_profile: dict,
+    monthly_repayment: int | None,
+    dsr: float | None,
+) -> str | None:
+    if dsr is not None:
+        return None
+    if primary_user_mode != OWNER_OCCUPIED:
+        return "실거주 분석에서만 계산합니다."
+    if not finance_profile.get("annual_income"):
+        return "연소득 정보가 없어 계산하지 않았습니다."
+    if monthly_repayment is None:
+        return _build_monthly_repayment_missing_reason(
+            primary_user_mode=primary_user_mode,
+            finance_profile=finance_profile,
+            monthly_repayment=monthly_repayment,
+        )
+    return "DSR 계산 정보가 부족해 계산하지 않았습니다."
+
+
+def _build_final_limiting_factor_label(loan_terms: dict) -> str:
+    final_loan_amount = int(loan_terms.get("final_loan_amount") or 0)
+    factors: list[str] = []
+
+    if loan_terms.get("loan_amount_by_ltv") is not None and final_loan_amount == int(
+        loan_terms["loan_amount_by_ltv"]
+    ):
+        factors.append("LTV 한도")
+    if loan_terms.get("dsr_based_loan_limit") is not None and final_loan_amount == int(
+        loan_terms["dsr_based_loan_limit"]
+    ):
+        factors.append("DSR 한도")
+    if loan_terms.get("max_loan_amount") is not None and final_loan_amount == int(
+        loan_terms["max_loan_amount"]
+    ):
+        factors.append("가격구간 최대한도")
+    if loan_terms.get("manual_loan_amount_override") is not None and final_loan_amount == int(
+        loan_terms["manual_loan_amount_override"]
+    ):
+        factors.append("수동 예상대출 상한")
+
+    unique_factors = list(dict.fromkeys(factors))
+    if not unique_factors:
+        return "규칙 엔진 계산값"
+    return ", ".join(unique_factors)
+
+
+def _used_regulated_loan_rule_fallback(
+    *,
+    applied_region_type: str | None,
+    matched_rule_region_type: str | None,
+) -> bool:
+    return (
+        applied_region_type in SPECIFIC_REGULATED_REGION_TYPES
+        and matched_rule_region_type == "REGULATED"
+    )
+
+
+def _build_loan_rule_fallback_notice(
+    *,
+    applied_region_type: str | None,
+    matched_rule_region_type: str | None,
+) -> str | None:
+    if not _used_regulated_loan_rule_fallback(
+        applied_region_type=applied_region_type,
+        matched_rule_region_type=matched_rule_region_type,
+    ):
+        return None
+    region_label = _loan_region_type_display_label(applied_region_type)
+    return f"{region_label} 전용 대출 규칙이 없어 공통 규제 규칙을 적용했습니다."
+
+
+def _loan_region_type_display_label(value: str | None) -> str:
+    return {
+        "NON_REGULATED": "비규제지역",
+        "REGULATED": "공통 규제 규칙",
+        "LAND_TRANSACTION_PERMISSION": "토지거래허가구역",
+        "SPECULATION_OVERHEATED_DISTRICT": "투기과열지구",
+        "ADJUSTMENT_TARGET_AREA": "조정대상지역",
+    }.get(value, value or "-")
 
 
 def _build_manual_override_items(benchmarks: BenchmarkInputs) -> list[str]:

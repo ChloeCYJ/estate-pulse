@@ -36,6 +36,8 @@ def render_finance_profile_page(finance_repository) -> None:
             [
                 "id",
                 "cash_amount",
+                "annual_income",
+                "interest_rate",
                 "existing_debt",
                 "home_count",
                 "owned_real_estate_value",
@@ -46,6 +48,8 @@ def render_finance_profile_page(finance_repository) -> None:
             ]
         ].copy()
         profile_df["cash_amount"] = profile_df["cash_amount"].map(format_compact_won)
+        profile_df["annual_income"] = profile_df["annual_income"].map(_format_money_or_dash)
+        profile_df["interest_rate"] = profile_df["interest_rate"].map(_format_rate_or_dash)
         profile_df["existing_debt"] = profile_df["existing_debt"].map(format_compact_won)
         profile_df["owned_real_estate_value"] = profile_df["owned_real_estate_value"].map(
             format_compact_won
@@ -61,6 +65,8 @@ def render_finance_profile_page(finance_repository) -> None:
             columns={
                 "id": "ID",
                 "cash_amount": "보유 현금",
+                "annual_income": "연소득",
+                "interest_rate": "금리",
                 "existing_debt": "기존 대출 총액",
                 "home_count": "보유 주택 수",
                 "owned_real_estate_value": "보유 부동산 시가",
@@ -119,6 +125,24 @@ def _render_profile_form(
             format="%.2f",
             help="예: 2억원은 2.0, 8억 5천만원은 8.5로 입력해 주세요.",
             key=f"{form_key}_cash_amount",
+        )
+        annual_income_eok = st.number_input(
+            "연소득 (억원)",
+            min_value=0.0,
+            step=0.1,
+            value=to_eok(selected.get("annual_income") or 0),
+            format="%.2f",
+            help="입력하지 않으면 DSR 계산을 생략합니다.",
+            key=f"{form_key}_annual_income",
+        )
+        interest_rate = st.number_input(
+            "금리",
+            min_value=0.0,
+            step=0.005,
+            value=float(selected.get("interest_rate") or 0.0),
+            format="%.3f",
+            help="예: 4%는 0.04로 입력합니다. 입력하지 않으면 월상환액과 DSR 계산을 생략합니다.",
+            key=f"{form_key}_interest_rate",
         )
 
         st.markdown("### 부채")
@@ -210,6 +234,8 @@ def _render_profile_form(
 
     payload = _build_profile_payload(
         cash_amount_eok=cash_amount_eok,
+        annual_income_eok=annual_income_eok,
+        interest_rate=interest_rate,
         credit_loan_balance_eok=credit_loan_balance_eok,
         other_loan_balance_eok=other_loan_balance_eok,
         home_count=int(home_count),
@@ -231,6 +257,8 @@ def _render_profile_form(
 def _build_profile_payload(
     *,
     cash_amount_eok: float,
+    annual_income_eok: float,
+    interest_rate: float,
     credit_loan_balance_eok: float,
     other_loan_balance_eok: float,
     home_count: int,
@@ -242,7 +270,7 @@ def _build_profile_payload(
 ) -> dict:
     return {
         "cash_amount": int(from_eok(cash_amount_eok)),
-        "annual_income": selected.get("annual_income"),
+        "annual_income": _to_optional_won(annual_income_eok),
         "existing_debt": int(
             from_eok(
                 _calculate_existing_debt_eok(
@@ -252,7 +280,7 @@ def _build_profile_payload(
                 )
             )
         ),
-        "interest_rate": selected.get("interest_rate"),
+        "interest_rate": _to_optional_ratio(interest_rate),
         "ltv_limit": selected.get("ltv_limit"),
         "dsr_limit": selected.get("dsr_limit"),
         "home_count": home_count,
@@ -278,6 +306,30 @@ def _calculate_existing_debt_won(profile: dict | pd.Series) -> int:
     return int(profile.get("owned_real_estate_debt") or 0) + int(
         profile.get("credit_loan_balance") or 0
     ) + int(profile.get("other_loan_balance") or 0)
+
+
+def _to_optional_won(value_eok: float) -> int | None:
+    if value_eok <= 0:
+        return None
+    return int(from_eok(value_eok))
+
+
+def _to_optional_ratio(value: float) -> float | None:
+    if value <= 0:
+        return None
+    return float(value)
+
+
+def _format_money_or_dash(value: int | None) -> str:
+    if value is None or pd.isna(value):
+        return "-"
+    return format_compact_won(int(value))
+
+
+def _format_rate_or_dash(value: float | None) -> str:
+    if value is None or pd.isna(value):
+        return "-"
+    return f"{float(value) * 100:.1f}%"
 
 
 def _format_ltv_or_dash(value: float | None) -> str:

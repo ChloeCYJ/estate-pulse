@@ -88,6 +88,13 @@ class RuleCandidateRepository:
             (target_rule_type,),
         )
 
+    def delete(self, candidate_id: int) -> None:
+        execute(
+            self.database_path,
+            "DELETE FROM rule_candidate WHERE id = ?",
+            (candidate_id,),
+        )
+
     def update_candidate_payload(
         self,
         *,

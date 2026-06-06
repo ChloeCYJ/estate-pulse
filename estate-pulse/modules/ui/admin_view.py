@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 
 import pandas as pd
 import streamlit as st
@@ -12,7 +13,7 @@ from modules.services.policy_import_service import (
     CANDIDATE_STATUS_REJECTED,
 )
 from modules.ui.policy_event_admin_view import render_policy_event_admin_page
-from modules.utils.money_utils import format_compact_won, from_eok
+from modules.utils.money_utils import format_compact_won, from_eok, to_eok
 
 
 GROUP_ORDER = ("POLICY_EVENT", "REGION_POLICY", "LOAN", "TAX", "BROKERAGE", "UNKNOWN")
@@ -81,7 +82,19 @@ def _render_loan_rule_tab(*, rule_admin_service) -> None:
             "예: 15~20억 미만 주택 대출을 4억으로 제한하려면 가격 하한 15, 가격 상한 미만 20, 최대 대출액 4를 입력하세요."
         )
         st.info("최종 예상 대출은 LTV 기준 대출, DSR 기준 한도, 최대 대출액 중 가장 낮은 금액으로 제한됩니다.")
-        with st.form("manual_loan_rule_form"):
+        with st.container():
+            version_options = ["자동 생성", *rule_admin_service.list_loan_rule_versions()]
+            selected_existing_version = st.selectbox(
+                "기존 rule_version 선택",
+                version_options,
+                index=0,
+                help="같은 정책 묶음이면 같은 rule_version을 선택해서 이어서 등록할 수 있습니다.",
+            )
+            input_rule_version = st.text_input(
+                "rule_version",
+                value="",
+                help="직접 입력하면 이 값을 사용합니다. 비우면 선택한 기존 rule_version 또는 자동 생성값을 사용합니다.",
+            )
             st.caption("규칙 버전은 저장 시 자동 채번됩니다.")
             description = st.text_input("설명", value="관리자 수동 대출 규칙")
 
@@ -98,7 +111,7 @@ def _render_loan_rule_tab(*, rule_admin_service) -> None:
             )
             buyer_type = condition_col2.selectbox(
                 "매수자 유형",
-                ["NO_HOME", "ONE_HOME", "MULTI_HOME"],
+                ["ALL", "NO_HOME", "ONE_HOME", "MULTI_HOME"],
                 format_func=_buyer_type_label,
             )
             purpose = condition_col3.selectbox(
@@ -122,17 +135,19 @@ def _render_loan_rule_tab(*, rule_admin_service) -> None:
                 value=20.0,
                 step=0.1,
                 format="%.2f",
+                disabled=not use_price_max,
                 help="체크하지 않으면 가격 상한 없이 저장합니다. 체크하면 입력 금액 미만까지 적용됩니다.",
             )
+            unlimited_max_loan = price_col3.checkbox("최대 대출액 제한 없음")
             max_loan_amount_eok = price_col3.number_input(
                 "최대 대출액 (억 원)",
                 min_value=0.0,
                 value=2.0,
                 step=0.1,
                 format="%.2f",
+                disabled=unlimited_max_loan,
                 help="0을 입력하면 0원 대출 제한으로 저장됩니다. 제한 없음은 아래 체크박스를 사용하세요.",
             )
-            unlimited_max_loan = price_col3.checkbox("최대 대출액 제한 없음")
 
             ratio_col1, ratio_col2 = st.columns(2)
             ltv_rate = ratio_col1.number_input(
@@ -152,12 +167,15 @@ def _render_loan_rule_tab(*, rule_admin_service) -> None:
                 format="%.2f",
             )
 
-            submitted = st.form_submit_button("대출 규칙 저장")
+            submitted = st.button("대출 규칙 저장")
 
         if submitted:
             try:
+                rule_version = input_rule_version.strip()
+                if not rule_version and selected_existing_version != "자동 생성":
+                    rule_version = selected_existing_version
                 rule_admin_service.create_manual_loan_rule(
-                    rule_version="",
+                    rule_version=rule_version,
                     effective_from=effective_from.isoformat(),
                     effective_to=effective_to.isoformat() if effective_to else None,
                     region_type=region_type,
@@ -181,7 +199,547 @@ def _render_loan_rule_tab(*, rule_admin_service) -> None:
             except Exception as exc:
                 st.error(str(exc))
 
-    _render_rule_table("현재 적용 대출 규칙", rule_admin_service.list_loan_rules(), "loan")
+    list_mode = st.radio(
+        "목록 보기",
+        ["현재 적용 룰", "전체 보기"],
+        horizontal=True,
+        key="loan_rule_list_mode",
+    )
+    current_only = list_mode == "현재 적용 룰"
+    loan_rule_rows = rule_admin_service.list_loan_rules(
+        reference_date=date.today(),
+        current_only=current_only,
+    )
+    if not current_only:
+        state_filters = st.multiselect(
+            "상태 필터",
+            ["현재 적용", "비활성/만료", "예정"],
+            default=["현재 적용", "비활성/만료", "예정"],
+            key="loan_rule_state_filters",
+        )
+        loan_rule_rows = [row for row in loan_rule_rows if row["state"] in state_filters]
+    editable_rules = {
+        int(item["candidate_id"]): item for item in rule_admin_service.list_editable_loan_rules()
+    }
+    st.subheader("현재 적용 대출 규칙")
+    if not loan_rule_rows:
+        st.info("표시할 대출 규칙이 없습니다.")
+        return
+
+    st.caption(
+        "현재 날짜 기준 적용 중인 룰만 보여줍니다."
+        if current_only
+        else "전체 룰 목록입니다. 과거 종료/미래 예정 룰도 함께 볼 수 있습니다."
+    )
+    conflicts = rule_admin_service.list_loan_rule_conflicts(reference_date=date.today())
+    if conflicts:
+        st.warning("동일 조건에 현재 적용 가능한 대출규칙이 2건 이상 있습니다. 수정 또는 비활성화가 필요합니다.")
+        st.dataframe(pd.DataFrame(conflicts), use_container_width=True, hide_index=True)
+    _render_grouped_loan_rule_sections(
+        loan_rule_rows,
+        show_effective_dates=not current_only,
+    )
+
+    with st.expander("규칙 선택 / 수정 / 삭제", expanded=False):
+        loan_rule_df = pd.DataFrame(
+            [
+                {key: value for key, value in row.items() if not key.startswith("_")}
+                for row in loan_rule_rows
+            ]
+        ).rename(columns=_loan_column_labels())
+        selection = st.dataframe(
+            loan_rule_df,
+            use_container_width=True,
+            hide_index=True,
+            on_select="rerun",
+            selection_mode="multi-row",
+            key="active_loan_rules_table",
+        )
+        selected_rows = selection.selection.rows
+        displayed_editable_candidate_ids = [
+            int(row["_candidate_id"])
+            for row in loan_rule_rows
+            if row.get("_editable") and row.get("_candidate_id") is not None
+        ]
+        if not selected_rows and displayed_editable_candidate_ids:
+            delete_all_confirmed = st.checkbox(
+                f"현재 표시된 적용 규칙 전체 {len(displayed_editable_candidate_ids)}개 삭제를 확인합니다.",
+                key="delete_all_displayed_loan_rules_confirm",
+            )
+            if st.button("현재 표시된 적용 규칙 전체 삭제", key="delete_all_displayed_loan_rules"):
+                if not delete_all_confirmed:
+                    st.error("전체 삭제 확인 체크가 필요합니다.")
+                else:
+                    deleted_count = rule_admin_service.delete_applied_loan_rules(
+                        displayed_editable_candidate_ids
+                    )
+                    st.success(f"대출 규칙 {deleted_count}개를 삭제했습니다.")
+                    st.rerun()
+
+        if not selected_rows:
+            st.caption("1개 선택 시 수정, 여러 개 선택 시 일괄 삭제를 할 수 있습니다.")
+            return
+        else:
+            selected_summaries = [loan_rule_rows[int(index)] for index in selected_rows]
+            selected_editable_candidate_ids = [
+                int(row["_candidate_id"])
+                for row in selected_summaries
+                if row.get("_editable") and row.get("_candidate_id") is not None
+            ]
+
+            if len(selected_rows) > 1:
+                selected_builtin_count = len(selected_rows) - len(selected_editable_candidate_ids)
+                st.caption("여러 규칙을 선택했습니다. 선택한 적용 규칙만 한 번에 삭제할 수 있습니다.")
+                if not selected_editable_candidate_ids:
+                    st.caption("선택한 항목이 모두 기본 내장 규칙이라 일괄 삭제 버튼은 표시되지 않습니다.")
+                    st.caption("기본 내장 규칙은 삭제 대신 1개 선택 후 override로 대체해 주세요.")
+                else:
+                    if selected_builtin_count > 0:
+                        st.caption(
+                            f"선택한 {len(selected_rows)}개 중 {len(selected_editable_candidate_ids)}개만 삭제 대상입니다. "
+                            f"기본 내장 규칙 {selected_builtin_count}개는 유지됩니다."
+                        )
+                    bulk_delete_confirmed = st.checkbox(
+                        f"선택한 적용 규칙 {len(selected_editable_candidate_ids)}개 삭제를 확인합니다.",
+                        key="delete_selected_loan_rules_confirm",
+                    )
+                    if st.button("선택 규칙 일괄 삭제", key="delete_selected_loan_rules"):
+                        if not bulk_delete_confirmed:
+                            st.error("일괄 삭제 확인 체크가 필요합니다.")
+                        else:
+                            deleted_count = rule_admin_service.delete_applied_loan_rules(
+                                selected_editable_candidate_ids
+                            )
+                            st.success(f"대출 규칙 {deleted_count}개를 삭제했습니다.")
+                            st.rerun()
+
+            if len(selected_rows) != 1:
+                return
+
+        selected_summary = loan_rule_rows[int(selected_rows[0])]
+        candidate_id = selected_summary.get("_candidate_id")
+        is_builtin_rule = not selected_summary.get("_editable") or candidate_id is None
+        if is_builtin_rule:
+            selected_rule = dict(selected_summary["_rule_payload"])
+            field_key = (
+                f"builtin-{selected_rule['rule_version']}-{selected_rule['effective_from']}-"
+                f"{selected_rule['region_type']}-{selected_rule['buyer_type']}-{selected_rule['purpose']}-"
+                f"{selected_rule['house_price_min']}"
+            )
+            st.info("선택한 기본 내장 규칙을 기준으로 수정용 override를 저장할 수 있습니다.")
+        else:
+            selected_rule = editable_rules[int(candidate_id)]
+            field_key = str(selected_rule["candidate_id"])
+
+        edit_region_options = rule_admin_service.list_loan_region_types()
+        if selected_rule["region_type"] not in edit_region_options:
+            edit_region_options = [selected_rule["region_type"], *edit_region_options]
+
+        st.caption(
+            "선택한 기본 규칙을 대체할 override를 저장할 수 있습니다."
+            if is_builtin_rule
+            else "선택한 적용 규칙을 바로 수정하거나 삭제할 수 있습니다."
+        )
+        generated_name = _generated_loan_rule_name(
+            purpose=selected_rule["purpose"],
+            region_type=selected_rule["region_type"],
+            buyer_type=selected_rule["buyer_type"],
+        )
+        edit_rule_version = st.text_input(
+            "규칙 버전",
+            value=str(selected_rule["rule_version"]),
+            key=f"edit_loan_rule_version_{field_key}",
+        )
+        st.caption(f"표시명: {generated_name}")
+        edit_date_col1, edit_date_col2 = st.columns(2)
+        edit_effective_from = edit_date_col1.date_input(
+            "적용 시작일",
+            value=date.fromisoformat(selected_rule["effective_from"]),
+            key=f"edit_loan_effective_from_{field_key}",
+        )
+        edit_use_end_date = edit_date_col2.checkbox(
+            "종료일 입력",
+            value=selected_rule["effective_to"] is not None,
+            key=f"edit_loan_use_end_date_{field_key}",
+        )
+        edit_effective_to = (
+            st.date_input(
+                "적용 종료일",
+                value=(
+                    date.fromisoformat(selected_rule["effective_to"])
+                    if selected_rule["effective_to"]
+                    else edit_effective_from
+                ),
+                key=f"edit_loan_effective_to_{field_key}",
+            )
+            if edit_use_end_date
+            else None
+        )
+
+        edit_condition_col1, edit_condition_col2, edit_condition_col3 = st.columns(3)
+        edit_region_type = edit_condition_col1.selectbox(
+            "지역 유형",
+            edit_region_options,
+            index=edit_region_options.index(selected_rule["region_type"]),
+            format_func=_loan_region_type_label,
+            key=f"edit_loan_region_type_{field_key}",
+        )
+        edit_buyer_type = edit_condition_col2.selectbox(
+            "매수자 유형",
+            ["ALL", "NO_HOME", "ONE_HOME", "MULTI_HOME"],
+            index=["ALL", "NO_HOME", "ONE_HOME", "MULTI_HOME"].index(selected_rule["buyer_type"]),
+            format_func=_buyer_type_label,
+            key=f"edit_loan_buyer_type_{field_key}",
+        )
+        edit_purpose = edit_condition_col3.selectbox(
+            "목적",
+            ["OWNER_OCCUPIED", "INVESTMENT"],
+            index=["OWNER_OCCUPIED", "INVESTMENT"].index(selected_rule["purpose"]),
+            format_func=_investment_purpose_label,
+            key=f"edit_loan_purpose_{field_key}",
+        )
+
+        edit_price_col1, edit_price_col2, edit_price_col3 = st.columns(3)
+        edit_house_price_min_eok = edit_price_col1.number_input(
+            "가격 하한 (억 원)",
+            min_value=0.0,
+            value=to_eok(selected_rule["house_price_min"]),
+            step=0.1,
+            format="%.2f",
+            key=f"edit_loan_house_price_min_{field_key}",
+        )
+        edit_use_price_max = edit_price_col2.checkbox(
+            "가격 상한 미만 입력",
+            value=selected_rule["house_price_max"] is not None,
+            key=f"edit_loan_use_price_max_{field_key}",
+        )
+        edit_house_price_max_exclusive_eok = edit_price_col2.number_input(
+            "가격 상한 미만 (억 원)",
+            min_value=0.0,
+            value=(
+                to_eok(int(selected_rule["house_price_max"]) + 1)
+                if selected_rule["house_price_max"] is not None
+                else to_eok(selected_rule["house_price_min"])
+            ),
+            step=0.1,
+            format="%.2f",
+            disabled=not edit_use_price_max,
+            key=f"edit_loan_house_price_max_{field_key}",
+        )
+        edit_unlimited_max_loan = edit_price_col3.checkbox(
+            "최대 대출액 제한 없음",
+            value=selected_rule["max_loan_amount"] is None,
+            key=f"edit_loan_unlimited_max_loan_{field_key}",
+        )
+        edit_max_loan_amount_eok = edit_price_col3.number_input(
+            "최대 대출액 (억 원)",
+            min_value=0.0,
+            value=(
+                0.0
+                if selected_rule["max_loan_amount"] is None
+                else to_eok(selected_rule["max_loan_amount"])
+            ),
+            step=0.1,
+            format="%.2f",
+            disabled=edit_unlimited_max_loan,
+            key=f"edit_loan_max_loan_amount_{field_key}",
+        )
+
+        edit_ratio_col1, edit_ratio_col2 = st.columns(2)
+        edit_ltv_rate = edit_ratio_col1.number_input(
+            "LTV",
+            min_value=0.0,
+            max_value=1.0,
+            value=float(selected_rule["ltv_rate"]),
+            step=0.05,
+            format="%.2f",
+            key=f"edit_loan_ltv_rate_{field_key}",
+        )
+        edit_dsr_rate = edit_ratio_col2.number_input(
+            "DSR",
+            min_value=0.0,
+            max_value=1.0,
+            value=float(selected_rule["dsr_rate"]),
+            step=0.05,
+            format="%.2f",
+            key=f"edit_loan_dsr_rate_{field_key}",
+        )
+
+        edit_description = st.text_input(
+            "설명",
+            value=selected_rule["description"],
+            key=f"edit_loan_description_{field_key}",
+        )
+        action_col1, action_col2 = st.columns(2)
+        if action_col1.button(
+            "수정용 override 저장" if is_builtin_rule else "선택 규칙 수정",
+            key=f"update_loan_rule_{field_key}",
+        ):
+            try:
+                if is_builtin_rule:
+                    rule_admin_service.create_loan_rule_override(
+                        previous_rule=selected_summary["_rule_payload"],
+                        rule_version=edit_rule_version,
+                        effective_from=edit_effective_from.isoformat(),
+                        effective_to=edit_effective_to.isoformat() if edit_effective_to else None,
+                        region_type=edit_region_type,
+                        buyer_type=edit_buyer_type,
+                        purpose=edit_purpose,
+                        house_price_min=int(from_eok(edit_house_price_min_eok)),
+                        house_price_max=(
+                            int(from_eok(edit_house_price_max_exclusive_eok)) - 1
+                            if edit_use_price_max
+                            else None
+                        ),
+                        ltv_rate=float(edit_ltv_rate),
+                        dsr_rate=float(edit_dsr_rate),
+                        max_loan_amount=(
+                            None if edit_unlimited_max_loan else int(from_eok(edit_max_loan_amount_eok))
+                        ),
+                        description=edit_description,
+                    ),
+                    st.success("기본 규칙을 대체하는 override를 저장했습니다.")
+                else:
+                    rule_admin_service.update_applied_loan_rule(
+                        candidate_id=int(selected_rule["candidate_id"]),
+                        rule_version=edit_rule_version,
+                        effective_from=edit_effective_from.isoformat(),
+                        effective_to=edit_effective_to.isoformat() if edit_effective_to else None,
+                        region_type=edit_region_type,
+                        buyer_type=edit_buyer_type,
+                        purpose=edit_purpose,
+                        house_price_min=int(from_eok(edit_house_price_min_eok)),
+                        house_price_max=(
+                            int(from_eok(edit_house_price_max_exclusive_eok)) - 1
+                            if edit_use_price_max
+                            else None
+                        ),
+                        ltv_rate=float(edit_ltv_rate),
+                        dsr_rate=float(edit_dsr_rate),
+                        max_loan_amount=(
+                            None if edit_unlimited_max_loan else int(from_eok(edit_max_loan_amount_eok))
+                        ),
+                        description=edit_description,
+                    )
+                    st.success("대출 규칙을 수정했습니다.")
+                st.rerun()
+            except Exception as exc:
+                st.error(str(exc))
+        deactivate_col, delete_col = st.columns(2)
+        deactivate_from = deactivate_col.date_input(
+            "비활성화 기준일",
+            value=date.today(),
+            key=f"deactivate_loan_rule_date_{field_key}",
+            help="현재 계산에서 제외되지만 이력은 보존됩니다.",
+        )
+        if deactivate_col.button("비활성화", key=f"deactivate_loan_rule_{field_key}"):
+            try:
+                rule_admin_service.deactivate_loan_rule(
+                    selected_summary=selected_summary,
+                    inactive_from=deactivate_from.isoformat(),
+                )
+                st.success("대출 규칙을 비활성화했습니다.")
+                st.rerun()
+            except Exception as exc:
+                st.error(str(exc))
+        if is_builtin_rule:
+            delete_col.caption("기본 내장 규칙은 직접 삭제되지 않습니다. 필요하면 비활성화 또는 override를 사용해 주세요.")
+        else:
+            delete_confirmed = delete_col.checkbox(
+                "선택한 규칙 삭제를 확인합니다.",
+                key=f"delete_loan_confirm_{field_key}",
+            )
+            if delete_col.button("선택 규칙 삭제", key=f"delete_loan_rule_{field_key}"):
+                if not delete_confirmed:
+                    st.error("삭제 확인 체크가 필요합니다.")
+                else:
+                    try:
+                        rule_admin_service.delete_applied_loan_rule(int(selected_rule["candidate_id"]))
+                        st.success("대출 규칙을 삭제했습니다.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(str(exc))
+
+    with st.expander("일괄 변경", expanded=False):
+        editable_rows = rule_admin_service.list_editable_loan_rules()
+        if not editable_rows:
+            st.caption("일괄 변경 가능한 관리자 적용/override 규칙이 없습니다.")
+        else:
+            filter_col1, filter_col2, filter_col3, filter_col4 = st.columns(4)
+            version_options = ["전체", *sorted({str(item["rule_version"]) for item in editable_rows})]
+            purpose_options = ["전체", "OWNER_OCCUPIED", "INVESTMENT"]
+            region_options = ["전체", *rule_admin_service.list_loan_region_types()]
+            buyer_options = ["전체", "ALL", "NO_HOME", "ONE_HOME", "MULTI_HOME"]
+            bulk_rule_version_filter = filter_col1.selectbox("규칙 버전", version_options, key="bulk_rule_version_filter")
+            bulk_purpose_filter = filter_col2.selectbox("목적", purpose_options, key="bulk_purpose_filter")
+            bulk_region_filter = filter_col3.selectbox("지역 유형", region_options, key="bulk_region_filter")
+            bulk_buyer_filter = filter_col4.selectbox("매수자 유형", buyer_options, key="bulk_buyer_filter")
+            bulk_state_filter = st.selectbox(
+                "대상 상태",
+                ["전체", "현재 적용", "비활성/만료"],
+                key="bulk_state_filter",
+            )
+            filtered_bulk_rows = rule_admin_service.filter_editable_loan_rules(
+                rule_version=None if bulk_rule_version_filter == "전체" else bulk_rule_version_filter,
+                purpose=None if bulk_purpose_filter == "전체" else bulk_purpose_filter,
+                region_type=None if bulk_region_filter == "전체" else bulk_region_filter,
+                buyer_type=None if bulk_buyer_filter == "전체" else bulk_buyer_filter,
+                current_only=None,
+                state=None if bulk_state_filter == "전체" else bulk_state_filter,
+                reference_date=date.today(),
+            )
+            st.caption(f"대상 규칙 {len(filtered_bulk_rows)}건")
+            if filtered_bulk_rows:
+                st.dataframe(
+                    pd.DataFrame(
+                        [
+                            {
+                                "rule_version": item["rule_version"],
+                                "purpose": _investment_purpose_label(item["purpose"]),
+                                "region_type": _loan_region_type_label(item["region_type"]),
+                                "buyer_type": _buyer_type_label(item["buyer_type"]),
+                                "house_price_range": _loan_house_price_range_label(item),
+                                "ltv_rate": f"{float(item['ltv_rate']) * 100:.1f}%",
+                                "dsr_rate": f"{float(item['dsr_rate']) * 100:.1f}%",
+                                "max_loan_amount": _bulk_max_loan_label(item["max_loan_amount"]),
+                                "state": item["state"],
+                            }
+                            for item in filtered_bulk_rows
+                        ]
+                    ),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                bulk_change_col1, bulk_change_col2, bulk_change_col3 = st.columns(3)
+                bulk_change_ltv = bulk_change_col1.checkbox("LTV 변경", key="bulk_change_ltv")
+                bulk_ltv_rate = bulk_change_col1.number_input(
+                    "변경 LTV",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=0.4,
+                    step=0.05,
+                    format="%.2f",
+                    disabled=not bulk_change_ltv,
+                    key="bulk_ltv_rate",
+                )
+                bulk_change_dsr = bulk_change_col2.checkbox("DSR 변경", key="bulk_change_dsr")
+                bulk_dsr_rate = bulk_change_col2.number_input(
+                    "변경 DSR",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=0.4,
+                    step=0.05,
+                    format="%.2f",
+                    disabled=not bulk_change_dsr,
+                    key="bulk_dsr_rate",
+                )
+                bulk_change_max_loan = bulk_change_col3.checkbox("최대 대출액 변경", key="bulk_change_max_loan")
+                bulk_max_loan_unlimited = bulk_change_col3.checkbox(
+                    "제한 없음",
+                    key="bulk_max_loan_unlimited",
+                    disabled=not bulk_change_max_loan,
+                )
+                bulk_max_loan_amount = bulk_change_col3.number_input(
+                    "변경 최대 대출액(억 원)",
+                    min_value=0.0,
+                    value=0.0,
+                    step=0.1,
+                    format="%.2f",
+                    disabled=not bulk_change_max_loan or bulk_max_loan_unlimited,
+                    key="bulk_max_loan_amount",
+                )
+                bulk_change_version = st.checkbox("rule_version 변경", key="bulk_change_version")
+                bulk_rule_version = st.text_input(
+                    "변경 rule_version",
+                    value="",
+                    disabled=not bulk_change_version,
+                    key="bulk_rule_version",
+                )
+                bulk_date_col1, bulk_date_col2 = st.columns(2)
+                bulk_change_effective_from = bulk_date_col1.checkbox("적용 시작일 변경", key="bulk_change_effective_from")
+                bulk_effective_from = bulk_date_col1.date_input(
+                    "변경 적용 시작일",
+                    value=date.today(),
+                    disabled=not bulk_change_effective_from,
+                    key="bulk_effective_from",
+                )
+                bulk_change_effective_to = bulk_date_col2.checkbox("적용 종료일 변경", key="bulk_change_effective_to")
+                bulk_use_effective_to = bulk_date_col2.checkbox(
+                    "종료일 값 입력",
+                    disabled=not bulk_change_effective_to,
+                    key="bulk_use_effective_to",
+                )
+                bulk_effective_to = bulk_date_col2.date_input(
+                    "변경 적용 종료일",
+                    value=date.today(),
+                    disabled=not bulk_change_effective_to or not bulk_use_effective_to,
+                    key="bulk_effective_to",
+                )
+                bulk_change_description = st.checkbox("설명 변경", key="bulk_change_description")
+                bulk_description = st.text_input(
+                    "변경 설명",
+                    value="",
+                    disabled=not bulk_change_description,
+                    key="bulk_description",
+                )
+                bulk_deactivate = st.checkbox("비활성화", key="bulk_deactivate")
+                bulk_deactivate_from = st.date_input(
+                    "비활성화 기준일",
+                    value=date.today(),
+                    disabled=not bulk_deactivate,
+                    key="bulk_deactivate_from",
+                )
+                st.caption(
+                    f"선택한 조건에 해당하는 {len(filtered_bulk_rows)}개 대출규칙에 일괄 변경을 적용합니다."
+                )
+                bulk_confirmed = st.checkbox("일괄 변경 적용을 확인합니다.", key="bulk_update_confirm")
+                if st.button("일괄 변경 적용", key="bulk_update_apply"):
+                    if not bulk_confirmed:
+                        st.error("일괄 변경 확인 체크가 필요합니다.")
+                    else:
+                        candidate_ids = [int(item["candidate_id"]) for item in filtered_bulk_rows]
+                        if bulk_deactivate:
+                            for item in filtered_bulk_rows:
+                                summary = {
+                                    "_candidate_id": item["candidate_id"],
+                                    "_rule_payload": {
+                                        "rule_version": item["rule_version"],
+                                        "effective_from": item["effective_from"],
+                                        "effective_to": item["effective_to"],
+                                        "region_type": item["region_type"],
+                                        "buyer_type": item["buyer_type"],
+                                        "purpose": item["purpose"],
+                                        "house_price_min": item["house_price_min"],
+                                        "house_price_max": item["house_price_max"],
+                                        "ltv_rate": item["ltv_rate"],
+                                        "dsr_rate": item["dsr_rate"],
+                                        "max_loan_amount": item["max_loan_amount"],
+                                        "description": item["description"],
+                                    },
+                                }
+                                rule_admin_service.deactivate_loan_rule(
+                                    selected_summary=summary,
+                                    inactive_from=bulk_deactivate_from.isoformat(),
+                                )
+                            st.success(f"대출 규칙 {len(filtered_bulk_rows)}개를 비활성화했습니다.")
+                            st.rerun()
+                        updated_count = rule_admin_service.bulk_update_applied_loan_rules(
+                            candidate_ids=candidate_ids,
+                            rule_version=bulk_rule_version if bulk_change_version and bulk_rule_version.strip() else None,
+                            ltv_rate=bulk_ltv_rate if bulk_change_ltv else None,
+                            dsr_rate=bulk_dsr_rate if bulk_change_dsr else None,
+                            max_loan_amount_changed=bulk_change_max_loan,
+                            max_loan_amount=(
+                                None if bulk_max_loan_unlimited else int(from_eok(bulk_max_loan_amount))
+                            ),
+                            effective_from_changed=bulk_change_effective_from,
+                            effective_from=bulk_effective_from.isoformat(),
+                            effective_to_changed=bulk_change_effective_to,
+                            effective_to=bulk_effective_to.isoformat() if bulk_use_effective_to else None,
+                            description=bulk_description if bulk_change_description and bulk_description.strip() else None,
+                        )
+                        st.success(f"대출 규칙 {updated_count}개를 일괄 변경했습니다.")
+                        st.rerun()
 
 
 def _render_region_policy_tab(*, rule_admin_service, complex_repository=None) -> None:
@@ -661,7 +1219,6 @@ def _render_loan_preview(*, candidate: dict, policy_import_service) -> None:
         "지역 유형",
         [
             "NON_REGULATED",
-            "REGULATED",
             "LAND_TRANSACTION_PERMISSION",
             "SPECULATION_OVERHEATED_DISTRICT",
             "ADJUSTMENT_TARGET_AREA",
@@ -671,7 +1228,7 @@ def _render_loan_preview(*, candidate: dict, policy_import_service) -> None:
     )
     buyer_type = preview_cols[2].selectbox(
         "매수자 유형",
-        ["NO_HOME", "ONE_HOME", "MULTI_HOME"],
+        ["ALL", "NO_HOME", "ONE_HOME", "MULTI_HOME"],
         format_func=_buyer_type_label,
         key=f"preview_buyer_{candidate['id']}",
     )
@@ -854,7 +1411,7 @@ def _region_level_label(value: str) -> str:
 def _loan_region_type_label(value: str) -> str:
     return {
         "NON_REGULATED": "비규제지역",
-        "REGULATED": "규제지역",
+        "REGULATED": "공통 규제 규칙",
         "LAND_TRANSACTION_PERMISSION": "토지거래허가구역",
         "LAND_TRANSACTION_PERMISSION_AREA": "토지거래허가구역",
         "SPECULATION_OVERHEATED": "투기과열지구",
@@ -866,6 +1423,7 @@ def _loan_region_type_label(value: str) -> str:
 
 def _buyer_type_label(value: str) -> str:
     return {
+        "ALL": "전체",
         "NO_HOME": "무주택",
         "ONE_HOME": "1주택",
         "MULTI_HOME": "다주택",
@@ -944,6 +1502,97 @@ def _loan_column_labels() -> dict[str, str]:
         "conditions": "조건",
         "description": "설명",
     }
+
+
+def _render_grouped_loan_rule_sections(
+    rows: list[dict[str, str]],
+    *,
+    show_effective_dates: bool,
+) -> None:
+    grouped_rows = _group_loan_rule_rows(rows)
+    for rule_version, purpose, region_type in grouped_rows:
+        st.markdown(f"#### {rule_version} / {purpose} / {region_type}")
+        group_df = pd.DataFrame(
+            [
+                _loan_group_row_view(item, show_effective_dates=show_effective_dates)
+                for item in grouped_rows[(rule_version, purpose, region_type)]
+            ]
+        ).rename(columns=_loan_group_column_labels(show_effective_dates=show_effective_dates))
+        st.dataframe(group_df, use_container_width=True, hide_index=True)
+
+
+def _group_loan_rule_rows(rows: list[dict[str, str]]) -> dict[tuple[str, str, str], list[dict[str, str]]]:
+    grouped_rows: dict[tuple[str, str, str], list[dict[str, str]]] = {}
+    for row in rows:
+        group_key = (
+            str(row["rule_version"]),
+            str(row["investment_purpose"]),
+            str(row["region_type"]),
+        )
+        grouped_rows.setdefault(group_key, []).append(row)
+    return grouped_rows
+
+
+def _loan_group_row_view(
+    row: dict[str, str],
+    *,
+    show_effective_dates: bool,
+) -> dict[str, str]:
+    view = {
+        "state": row["state"],
+        "buyer_type": row["buyer_type"],
+        "house_price_range": row["house_price_range"],
+        "ltv_rate": row["ltv_rate"],
+        "dsr_rate": row["dsr_rate"],
+        "max_loan_amount": row["max_loan_amount"],
+        "conditions": row["conditions"],
+        "description": row["description"],
+    }
+    if show_effective_dates:
+        view = {
+            "effective_from": row["effective_from"],
+            "effective_to": row["effective_to"],
+            **view,
+        }
+    return view
+
+
+def _loan_group_column_labels(*, show_effective_dates: bool) -> dict[str, str]:
+    labels = {
+        "state": "상태",
+        "buyer_type": "매수자 유형",
+        "house_price_range": "주택 가격 구간",
+        "ltv_rate": "LTV",
+        "dsr_rate": "DSR",
+        "max_loan_amount": "최대 대출 한도",
+        "conditions": "조건",
+        "description": "설명",
+    }
+    if show_effective_dates:
+        return {
+            "effective_from": "적용 시작일",
+            "effective_to": "적용 종료일",
+            **labels,
+        }
+    return labels
+
+
+def _generated_loan_rule_name(*, purpose: str, region_type: str, buyer_type: str) -> str:
+    return f"{_investment_purpose_label(purpose)} / {_loan_region_type_label(region_type)} / {_buyer_type_label(buyer_type)}"
+
+
+def _loan_house_price_range_label(item: dict) -> str:
+    min_value = int(item["house_price_min"])
+    max_value = item["house_price_max"]
+    if max_value is None:
+        return f"{format_compact_won(min_value)} 이상"
+    return f"{format_compact_won(min_value)} ~ {format_compact_won(int(max_value))}"
+
+
+def _bulk_max_loan_label(value) -> str:
+    if value is None:
+        return "제한 없음"
+    return format_compact_won(int(value))
 
 
 def _tax_column_labels() -> dict[str, str]:

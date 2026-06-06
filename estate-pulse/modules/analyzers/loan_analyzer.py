@@ -19,11 +19,12 @@ def select_loan_rule(
     target_date = reference_date or date.today()
     matching_rules: list[LoanRule] = []
     region_candidates = _loan_region_candidates(region_type)
+    buyer_type_candidates = _loan_buyer_type_candidates(buyer_type)
 
     for rule in rules or get_loan_rules():
         if rule.region_type not in region_candidates:
             continue
-        if rule.buyer_type != buyer_type:
+        if rule.buyer_type not in buyer_type_candidates:
             continue
         if rule.purpose != purpose:
             continue
@@ -37,6 +38,7 @@ def select_loan_rule(
         matching_rules.sort(
             key=lambda rule: (
                 rule.region_type == region_type,
+                rule.buyer_type == buyer_type,
                 date.fromisoformat(rule.effective_from),
                 rule.house_price_min,
                 rule.house_price_max or 10**30,
@@ -59,6 +61,12 @@ def _loan_region_candidates(region_type: str) -> tuple[str, ...]:
     }:
         return (region_type, "REGULATED")
     return (region_type,)
+
+
+def _loan_buyer_type_candidates(buyer_type: str) -> tuple[str, ...]:
+    if buyer_type == "ALL":
+        return ("ALL",)
+    return (buyer_type, "ALL")
 
 
 def calculate_loan_terms(

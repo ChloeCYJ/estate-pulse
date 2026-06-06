@@ -248,11 +248,20 @@ def _render_analysis_metrics(result: dict) -> None:
         )
     else:
         extra_cols[0].metric("월 상환액", _format_optional_money(result["monthly_repayment"]))
-        repayment_reason = _missing_metric_reason("monthly_repayment", result["monthly_repayment"])
+        applied_rules = result.get("applied_rules") or {}
+        repayment_reason = _missing_metric_reason(
+            "monthly_repayment",
+            result["monthly_repayment"],
+            explicit_reason=(applied_rules.get("monthly_repayment") or {}).get("missing_reason"),
+        )
         if repayment_reason:
             extra_cols[0].caption(repayment_reason)
         extra_cols[1].metric("DSR", _format_optional_percent(result["dsr"]))
-        dsr_reason = _missing_metric_reason("dsr", result["dsr"])
+        dsr_reason = _missing_metric_reason(
+            "dsr",
+            result["dsr"],
+            explicit_reason=(applied_rules.get("dsr") or {}).get("missing_reason"),
+        )
         if dsr_reason:
             extra_cols[1].caption(dsr_reason)
         extra_cols[2].metric(
@@ -454,20 +463,25 @@ def _render_applied_rules_panel(result: dict) -> None:
     loan_rows = [
         {"항목": "기준 가격", "값": _format_optional_money(base_price)},
         {"항목": "적용 LTV", "값": _format_ratio_percent(applied_ltv_rate)},
-        {"항목": "LTV 기준 대출", "값": _format_optional_money(loan_amount_by_ltv)},
+        {"항목": "LTV 기준 대출 한도", "값": _format_optional_money(loan_amount_by_ltv)},
         {
             "항목": "DSR 기준 대출 한도",
             "값": _format_optional_money(loan_ltv.get("dsr_based_loan_limit")),
         },
         {
-            "항목": "최대 대출액",
+            "항목": "가격구간 최대한도",
             "값": _format_unlimited_money(loan_ltv.get("max_loan_amount")),
         },
         {
             "항목": "정책 제한 후 대출",
             "값": _format_optional_money(loan_ltv.get("policy_capped_loan_amount")),
         },
-        {"항목": "예상 대출", "값": _format_optional_money(expected_loan_amount)},
+        {
+            "항목": "수동 예상대출 상한",
+            "값": _format_optional_money(loan_ltv.get("manual_loan_amount_override")),
+        },
+        {"항목": "최종 예상 대출", "값": _format_optional_money(expected_loan_amount)},
+        {"항목": "최종 제한 요인", "값": _display_value(loan_ltv.get("final_limiting_factor"))},
         {
             "항목": "LTV 적용 방식",
             "값": _applied_method_label(loan_ltv.get("ltv_method")),
@@ -483,6 +497,18 @@ def _render_applied_rules_panel(result: dict) -> None:
         {
             "항목": "적용 규제",
             "값": _loan_region_type_label(loan_ltv.get("applied_region_type")),
+        },
+        {
+            "항목": "매칭된 규칙 지역 유형",
+            "값": _loan_region_type_label(loan_ltv.get("matched_rule_region_type")),
+        },
+        {
+            "항목": "규칙 fallback 사용",
+            "값": "예" if loan_ltv.get("used_regulated_fallback") else "아니오",
+        },
+        {
+            "항목": "규칙 매칭 안내",
+            "값": _display_value(loan_ltv.get("fallback_notice")),
         },
         {
             "항목": "지역 판정 출처",
@@ -526,7 +552,7 @@ def _render_applied_rules_panel(result: dict) -> None:
         },
         {
             "항목": "대출기간",
-            "값": _loan_term_label(monthly_repayment.get("loan_term_years")),
+            "값": _loan_term_label(monthly_repayment.get("loan_term_years"), fixed=True),
         },
         {
             "항목": "월상환액",
@@ -929,10 +955,13 @@ def _cost_rule_method_label(manual_override: object) -> str:
     return "수동 보정" if bool(manual_override) else "자동 계산"
 
 
-def _loan_term_label(value: object) -> str:
+def _loan_term_label(value: object, *, fixed: bool = False) -> str:
     if _is_missing_value(value):
         return "정보 없음"
-    return f"{int(value)}년"
+    label = f"{int(value)}년"
+    if fixed:
+        return f"{label} 고정"
+    return label
 
 
 def _joined_labels(values: object) -> str:
@@ -967,11 +996,17 @@ def _ltv_formula_label(loan_ltv: dict) -> str:
     )
 
 
-def _missing_metric_reason(metric_key: str, value: object) -> str | None:
+def _missing_metric_reason(
+    metric_key: str,
+    value: object,
+    explicit_reason: str | None = None,
+) -> str | None:
     if not _is_missing_value(value):
         return None
+    if explicit_reason:
+        return explicit_reason
     return {
-        "monthly_repayment": "금리 또는 대출기간 정보가 없어 계산하지 않았습니다.",
+        "monthly_repayment": "금리 정보가 없어 계산하지 않았습니다.",
         "dsr": "연소득 정보가 없어 계산하지 않았습니다.",
     }.get(metric_key)
 
@@ -1048,7 +1083,7 @@ def _region_level_label(value: str) -> str:
 
 def _loan_region_type_label(value: str | None) -> str:
     return {
-        "REGULATED": "규제지역",
+        "REGULATED": "공통 규제 규칙",
         "NON_REGULATED": "비규제지역",
         "ADJUSTMENT_TARGET": "조정대상지역",
         "ADJUSTMENT_TARGET_AREA": "조정대상지역",

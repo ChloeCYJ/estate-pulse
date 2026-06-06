@@ -134,6 +134,80 @@ class LoanAnalyzerRuleTests(unittest.TestCase):
         self.assertEqual(loan_terms["max_loan_amount"], 400_000_000)
         self.assertEqual(loan_terms["final_loan_amount"], 400_000_000)
 
+    def test_all_buyer_type_rule_is_used_when_specific_rule_is_missing(self) -> None:
+        rules = [
+            LoanRule(
+                rule_version="all-buyer-type",
+                effective_from="2026-05-01",
+                effective_to=None,
+                region_type="NON_REGULATED",
+                buyer_type="ALL",
+                purpose="OWNER_OCCUPIED",
+                house_price_min=0,
+                house_price_max=899_999_999,
+                ltv_rate=0.65,
+                dsr_rate=0.40,
+                max_loan_amount=None,
+                description="all buyer type",
+            ),
+        ]
+
+        loan_terms = calculate_loan_terms(
+            sale_price=850_000_000,
+            region_type="NON_REGULATED",
+            buyer_type="ONE_HOME",
+            purpose="OWNER_OCCUPIED",
+            reference_date=date(2026, 6, 3),
+            rules=rules,
+        )
+
+        self.assertEqual(loan_terms["rule_version"], "all-buyer-type")
+        self.assertEqual(loan_terms["buyer_type"], "ALL")
+
+    def test_specific_buyer_type_rule_is_preferred_over_all(self) -> None:
+        rules = [
+            LoanRule(
+                rule_version="all-buyer-type",
+                effective_from="2026-05-01",
+                effective_to=None,
+                region_type="NON_REGULATED",
+                buyer_type="ALL",
+                purpose="OWNER_OCCUPIED",
+                house_price_min=0,
+                house_price_max=899_999_999,
+                ltv_rate=0.65,
+                dsr_rate=0.40,
+                max_loan_amount=None,
+                description="all buyer type",
+            ),
+            LoanRule(
+                rule_version="one-home-specific",
+                effective_from="2026-05-01",
+                effective_to=None,
+                region_type="NON_REGULATED",
+                buyer_type="ONE_HOME",
+                purpose="OWNER_OCCUPIED",
+                house_price_min=0,
+                house_price_max=899_999_999,
+                ltv_rate=0.55,
+                dsr_rate=0.40,
+                max_loan_amount=None,
+                description="one home specific",
+            ),
+        ]
+
+        loan_terms = calculate_loan_terms(
+            sale_price=850_000_000,
+            region_type="NON_REGULATED",
+            buyer_type="ONE_HOME",
+            purpose="OWNER_OCCUPIED",
+            reference_date=date(2026, 6, 3),
+            rules=rules,
+        )
+
+        self.assertEqual(loan_terms["rule_version"], "one-home-specific")
+        self.assertEqual(loan_terms["buyer_type"], "ONE_HOME")
+
     def test_unlimited_max_loan_amount_uses_ltv_limit(self) -> None:
         loan_terms = calculate_loan_terms(
             sale_price=850_000_000,

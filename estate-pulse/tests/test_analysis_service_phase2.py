@@ -144,16 +144,20 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
         self.assertEqual(loan_ltv["ltv_method"], "AUTO_RULE")
         self.assertFalse(loan_ltv["manual_ltv_used"])
         self.assertEqual(loan_ltv["applied_region_type"], "NON_REGULATED")
+        self.assertEqual(loan_ltv["matched_rule_region_type"], "NON_REGULATED")
+        self.assertFalse(loan_ltv["used_regulated_fallback"])
+        self.assertIsNone(loan_ltv["fallback_notice"])
         self.assertIsNotNone(loan_ltv["matched_rule_version"])
         self.assertEqual(loan_ltv["loan_amount_by_ltv"], 540_000_000)
         self.assertEqual(loan_ltv["expected_loan_amount"], 540_000_000)
+        self.assertEqual(loan_ltv["final_limiting_factor"], "LTV 한도")
         self.assertEqual(
             applied_rules["dsr"]["missing_reason"],
-            "연소득 정보가 없어 계산하지 않았습니다.",
+            "실거주 분석에서만 계산합니다.",
         )
         self.assertEqual(
             applied_rules["monthly_repayment"]["missing_reason"],
-            "금리 또는 대출기간 정보가 없어 계산하지 않았습니다.",
+            "실거주 분석에서만 계산합니다.",
         )
 
     def test_jeonse_ratio_fallback_uses_rent_transactions(self) -> None:
@@ -195,6 +199,94 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
             result["applied_rules"]["loan_ltv"]["manual_ltv_source"],
             "FINANCE_PROFILE",
         )
+
+    def test_home_count_maps_to_one_home_buyer_type(self) -> None:
+        self.region_policy_service.create_region_policy_status(
+            region_level="SIGUNGU",
+            sido="서울",
+            sigungu="서초구",
+            dong=None,
+            policy_type="REGULATED_AREA",
+            effective_from="2026-05-01",
+            effective_to=None,
+            notes="test",
+        )
+        one_home_profile_id = self.finance_repository.create(
+            cash_amount=250_000_000,
+            annual_income=None,
+            existing_debt=0,
+            interest_rate=None,
+            ltv_limit=None,
+            dsr_limit=None,
+            home_count=1,
+        )
+
+        result = self.analysis_service.run_analysis(
+            listing_id=self.listing_id,
+            finance_profile_id=one_home_profile_id,
+            benchmarks=BenchmarkInputs(reference_date=date(2026, 5, 27)),
+            save_result=False,
+        )
+
+        self.assertEqual(result["resolved_buyer_type"], "ONE_HOME")
+        self.assertEqual(result["loan_terms"]["buyer_type"], "ONE_HOME")
+        self.assertEqual(result["expected_loan_amount"], 180_000_000)
+
+    def test_explicit_buyer_type_keeps_priority_over_home_count_mapping(self) -> None:
+        self.region_policy_service.create_region_policy_status(
+            region_level="SIGUNGU",
+            sido="서울",
+            sigungu="서초구",
+            dong=None,
+            policy_type="REGULATED_AREA",
+            effective_from="2026-05-01",
+            effective_to=None,
+            notes="test",
+        )
+        multi_home_profile_id = self.finance_repository.create(
+            cash_amount=250_000_000,
+            annual_income=None,
+            existing_debt=0,
+            interest_rate=None,
+            ltv_limit=None,
+            dsr_limit=None,
+            home_count=2,
+        )
+
+        result = self.analysis_service.run_analysis(
+            listing_id=self.listing_id,
+            finance_profile_id=multi_home_profile_id,
+            benchmarks=BenchmarkInputs(
+                reference_date=date(2026, 5, 27),
+                buyer_type="NO_HOME",
+            ),
+            save_result=False,
+        )
+
+        self.assertEqual(result["resolved_buyer_type"], "NO_HOME")
+        self.assertEqual(result["loan_terms"]["buyer_type"], "NO_HOME")
+
+    def test_missing_non_regulated_buyer_rule_falls_back_to_no_home_rule(self) -> None:
+        one_home_profile_id = self.finance_repository.create(
+            cash_amount=250_000_000,
+            annual_income=None,
+            existing_debt=0,
+            interest_rate=None,
+            ltv_limit=None,
+            dsr_limit=None,
+            home_count=1,
+        )
+
+        result = self.analysis_service.run_analysis(
+            listing_id=self.listing_id,
+            finance_profile_id=one_home_profile_id,
+            benchmarks=BenchmarkInputs(reference_date=date(2026, 5, 27)),
+            save_result=False,
+        )
+
+        self.assertEqual(result["resolved_buyer_type"], "ONE_HOME")
+        self.assertEqual(result["loan_rule_buyer_type"], "NO_HOME")
+        self.assertEqual(result["loan_terms"]["buyer_type"], "NO_HOME")
 
     def test_sell_owned_real_estate_funding_mode_uses_net_sale_cash(self) -> None:
         replacement_profile_id = self.finance_repository.create(
@@ -247,6 +339,89 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
         self.assertEqual(result["region_policy_source"], "region_policy_status")
         self.assertEqual(result["loan_terms"]["region_type"], "REGULATED")
         self.assertEqual(result["expected_loan_amount"], 270_000_000)
+
+    def test_specific_region_without_dedicated_rule_marks_regulated_fallback(self) -> None:
+        complex_row = self.complex_repository.get(self.complex_id)
+        self.region_policy_service.create_region_policy_status(
+            region_level="SIGUNGU",
+            sido=complex_row["sido"],
+            sigungu=complex_row["sigungu"],
+            dong=None,
+            policy_type="LAND_TRANSACTION_PERMISSION",
+            effective_from="2026-05-01",
+            effective_to=None,
+            notes="test",
+        )
+
+        result = self.analysis_service.run_analysis(
+            listing_id=self.listing_id,
+            finance_profile_id=self.profile_id,
+            benchmarks=BenchmarkInputs(
+                reference_date=date(2026, 5, 27),
+                analysis_mode="OWNER_OCCUPIED",
+            ),
+            save_result=False,
+        )
+
+        loan_ltv = result["applied_rules"]["loan_ltv"]
+        self.assertEqual(result["resolved_region_type"], "LAND_TRANSACTION_PERMISSION")
+        self.assertEqual(loan_ltv["applied_region_type"], "LAND_TRANSACTION_PERMISSION")
+        self.assertEqual(loan_ltv["matched_rule_region_type"], "REGULATED")
+        self.assertTrue(loan_ltv["used_regulated_fallback"])
+        self.assertEqual(
+            loan_ltv["fallback_notice"],
+            "토지거래허가구역 전용 대출 규칙이 없어 공통 규제 규칙을 적용했습니다.",
+        )
+
+    def test_owner_occupied_missing_reasons_follow_actual_input_gap(self) -> None:
+        income_only_profile_id = self.finance_repository.create(
+            cash_amount=250_000_000,
+            annual_income=120_000_000,
+            existing_debt=0,
+            interest_rate=None,
+            ltv_limit=None,
+            dsr_limit=None,
+        )
+
+        result = self.analysis_service.run_analysis(
+            listing_id=self.listing_id,
+            finance_profile_id=income_only_profile_id,
+            benchmarks=BenchmarkInputs(
+                reference_date=date(2026, 5, 27),
+                analysis_mode="OWNER_OCCUPIED",
+            ),
+            save_result=False,
+        )
+
+        self.assertEqual(
+            result["applied_rules"]["monthly_repayment"]["missing_reason"],
+            "금리 정보가 없어 계산하지 않았습니다.",
+        )
+        self.assertEqual(
+            result["applied_rules"]["dsr"]["missing_reason"],
+            "금리 정보가 없어 계산하지 않았습니다.",
+        )
+
+    def test_applied_rules_include_manual_expected_loan_limit_factor(self) -> None:
+        result = self.analysis_service.run_analysis(
+            listing_id=self.listing_id,
+            finance_profile_id=self.profile_id,
+            benchmarks=BenchmarkInputs(
+                reference_date=date(2026, 5, 27),
+                expected_loan_amount=150_000_000,
+            ),
+            save_result=False,
+        )
+
+        self.assertEqual(
+            result["applied_rules"]["loan_ltv"]["manual_loan_amount_override"],
+            150_000_000,
+        )
+        self.assertEqual(
+            result["applied_rules"]["loan_ltv"]["final_limiting_factor"],
+            "수동 예상대출 상한",
+        )
+        self.assertEqual(result["expected_loan_amount"], 150_000_000)
 
     def test_analysis_returns_active_region_regulation_list(self) -> None:
         complex_row = self.complex_repository.get(self.complex_id)

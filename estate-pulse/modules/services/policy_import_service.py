@@ -1080,8 +1080,13 @@ def _load_json_or_none(value: str | None) -> dict | None:
 def _load_json_list(value: str | None) -> list[str]:
     if not value:
         return []
-    data = json.loads(value)
-    return [str(item) for item in data]
+    try:
+        data = json.loads(value)
+    except json.JSONDecodeError:
+        return [str(value)]
+    if isinstance(data, list):
+        return [str(item) for item in data]
+    return [str(data)]
 
 
 def _changed_fields(

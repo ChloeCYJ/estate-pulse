@@ -423,6 +423,32 @@ class PolicyImportServiceTests(unittest.TestCase):
             validation.errors,
         )
 
+    def test_get_policy_import_detail_tolerates_plain_text_warnings(self) -> None:
+        policy_import_id = self.policy_import_repository.create(
+            source_text="manual rule",
+            source_name="manual",
+            target_rule_type="LOAN",
+            effective_date="2026-06-01",
+            parser_name="manual_admin",
+            parser_status="APPLIED",
+        )
+        self.rule_candidate_repository.create(
+            policy_import_id=policy_import_id,
+            target_rule_type="LOAN",
+            rule_name="manual rule",
+            rule_version="manual-1",
+            previous_rule_json=None,
+            proposed_rule_json='{"rule_version":"manual-1"}',
+            changed_fields_json='["ltv_rate"]',
+            confidence=1.0,
+            warnings="관리자 수동 등록 경고",
+            status="APPLIED",
+        )
+
+        detail = self.service.get_policy_import_detail(policy_import_id)
+
+        self.assertEqual(detail["candidates"][0]["warnings_list"], ["관리자 수동 등록 경고"])
+
 
 if __name__ == "__main__":
     unittest.main()

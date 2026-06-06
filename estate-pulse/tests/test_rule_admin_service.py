@@ -50,6 +50,7 @@ class RuleAdminServiceTests(unittest.TestCase):
                 "rule_name",
                 "effective_from",
                 "effective_to",
+                "state",
                 "investment_purpose",
                 "region_type",
                 "buyer_type",
@@ -59,9 +60,28 @@ class RuleAdminServiceTests(unittest.TestCase):
                 "max_loan_amount",
                 "conditions",
                 "description",
+                "_candidate_id",
+                "_editable",
+                "_rule_payload",
             },
         )
         self.assertEqual(rows[0]["rule_version"], "2026.05-v2")
+        self.assertIn("미만", rows[0]["rule_name"])
+        self.assertNotIn("원", rows[0]["rule_name"])
+
+    def test_loan_region_type_options_hide_legacy_generic_regulated_choice(self) -> None:
+        options = self.service.list_loan_region_types()
+
+        self.assertEqual(
+            options,
+            [
+                "NON_REGULATED",
+                "LAND_TRANSACTION_PERMISSION",
+                "SPECULATION_OVERHEATED_DISTRICT",
+                "ADJUSTMENT_TARGET_AREA",
+            ],
+        )
+        self.assertNotIn("REGULATED", options)
 
     def test_manual_loan_rule_registration_is_applied_to_runtime_rules(self) -> None:
         self.service.create_manual_loan_rule(
@@ -127,6 +147,400 @@ class RuleAdminServiceTests(unittest.TestCase):
         self.assertEqual(loan_terms["max_loan_amount"], 400_000_000)
         self.assertEqual(loan_terms["final_loan_amount"], 400_000_000)
 
+    def test_manual_loan_rule_accepts_all_buyer_type(self) -> None:
+        self.service.create_manual_loan_rule(
+            rule_version="manual-all-buyer-type",
+            effective_from="2026-06-01",
+            effective_to=None,
+            region_type="NON_REGULATED",
+            buyer_type="ALL",
+            purpose="OWNER_OCCUPIED",
+            house_price_min=0,
+            house_price_max=899_999_999,
+            ltv_rate=0.65,
+            dsr_rate=0.40,
+            max_loan_amount=None,
+            description="전체 공통 룰",
+        )
+
+        rows = self.service.list_loan_rules()
+        manual_rows = [row for row in rows if row["rule_version"] == "manual-all-buyer-type"]
+        self.assertEqual(len(manual_rows), 1)
+        self.assertEqual(manual_rows[0]["buyer_type"], "전체")
+
+    def test_loan_rule_versions_include_existing_manual_versions(self) -> None:
+        self.service.create_manual_loan_rule(
+            rule_version="2026.06-비규제-실거주-보완",
+            effective_from="2026-06-01",
+            effective_to=None,
+            region_type="NON_REGULATED",
+            buyer_type="ALL",
+            purpose="OWNER_OCCUPIED",
+            house_price_min=0,
+            house_price_max=899_999_999,
+            ltv_rate=0.65,
+            dsr_rate=0.40,
+            max_loan_amount=None,
+            description="shared version",
+        )
+
+        versions = self.service.list_loan_rule_versions()
+
+        self.assertIn("2026.06-비규제-실거주-보완", versions)
+        self.assertIn("2026.05-v2", versions)
+
+    def test_applied_loan_rule_can_be_updated(self) -> None:
+        self.service.create_manual_loan_rule(
+            rule_version="manual-update-target",
+            effective_from="2026-06-01",
+            effective_to=None,
+            region_type="NON_REGULATED",
+            buyer_type="ALL",
+            purpose="OWNER_OCCUPIED",
+            house_price_min=0,
+            house_price_max=899_999_999,
+            ltv_rate=0.65,
+            dsr_rate=0.40,
+            max_loan_amount=None,
+            description="update before",
+        )
+        editable_rule = next(
+            item
+            for item in self.service.list_editable_loan_rules()
+            if item["rule_version"] == "manual-update-target"
+        )
+
+        self.service.update_applied_loan_rule(
+            candidate_id=int(editable_rule["candidate_id"]),
+            rule_version="manual-update-target-v2",
+            effective_from="2026-06-01",
+            effective_to=None,
+            region_type="NON_REGULATED",
+            buyer_type="ALL",
+            purpose="OWNER_OCCUPIED",
+            house_price_min=0,
+            house_price_max=899_999_999,
+            ltv_rate=0.55,
+            dsr_rate=0.40,
+            max_loan_amount=300_000_000,
+            description="update after",
+        )
+
+        updated_rule = next(
+            item
+            for item in self.service.list_editable_loan_rules()
+            if item["candidate_id"] == editable_rule["candidate_id"]
+        )
+        self.assertEqual(updated_rule["rule_version"], "manual-update-target-v2")
+        self.assertEqual(updated_rule["description"], "update after")
+        self.assertEqual(updated_rule["ltv_rate"], 0.55)
+        self.assertEqual(updated_rule["max_loan_amount"], 300_000_000)
+
+    def test_applied_loan_rule_can_be_deleted(self) -> None:
+        self.service.create_manual_loan_rule(
+            rule_version="manual-delete-target",
+            effective_from="2026-06-01",
+            effective_to=None,
+            region_type="NON_REGULATED",
+            buyer_type="ALL",
+            purpose="OWNER_OCCUPIED",
+            house_price_min=0,
+            house_price_max=899_999_999,
+            ltv_rate=0.65,
+            dsr_rate=0.40,
+            max_loan_amount=None,
+            description="delete target",
+        )
+        editable_rule = next(
+            item
+            for item in self.service.list_editable_loan_rules()
+            if item["rule_version"] == "manual-delete-target"
+        )
+
+        self.service.delete_applied_loan_rule(int(editable_rule["candidate_id"]))
+
+        remaining_versions = {
+            item["rule_version"] for item in self.service.list_editable_loan_rules()
+        }
+        self.assertNotIn("manual-delete-target", remaining_versions)
+
+    def test_applied_loan_rules_can_be_deleted_in_bulk(self) -> None:
+        self.service.create_manual_loan_rule(
+            rule_version="manual-bulk-delete-1",
+            effective_from="2026-06-01",
+            effective_to=None,
+            region_type="NON_REGULATED",
+            buyer_type="ALL",
+            purpose="OWNER_OCCUPIED",
+            house_price_min=0,
+            house_price_max=899_999_999,
+            ltv_rate=0.65,
+            dsr_rate=0.40,
+            max_loan_amount=None,
+            description="bulk delete 1",
+        )
+        self.service.create_manual_loan_rule(
+            rule_version="manual-bulk-delete-2",
+            effective_from="2026-06-01",
+            effective_to=None,
+            region_type="NON_REGULATED",
+            buyer_type="ALL",
+            purpose="INVESTMENT",
+            house_price_min=0,
+            house_price_max=899_999_999,
+            ltv_rate=0.55,
+            dsr_rate=0.40,
+            max_loan_amount=None,
+            description="bulk delete 2",
+        )
+        editable_rules = [
+            item
+            for item in self.service.list_editable_loan_rules()
+            if item["rule_version"] in {"manual-bulk-delete-1", "manual-bulk-delete-2"}
+        ]
+
+        deleted_count = self.service.delete_applied_loan_rules(
+            [int(item["candidate_id"]) for item in editable_rules]
+        )
+
+        self.assertEqual(deleted_count, 2)
+        remaining_versions = {
+            item["rule_version"] for item in self.service.list_editable_loan_rules()
+        }
+        self.assertNotIn("manual-bulk-delete-1", remaining_versions)
+        self.assertNotIn("manual-bulk-delete-2", remaining_versions)
+
+    def test_builtin_loan_rule_can_be_overridden(self) -> None:
+        builtin_rule = next(
+            row["_rule_payload"]
+            for row in self.service.list_loan_rules()
+            if row["_candidate_id"] is None
+        )
+
+        self.service.create_loan_rule_override(
+            previous_rule=builtin_rule,
+            rule_version="manual-override-rule",
+            effective_from=builtin_rule["effective_from"],
+            effective_to=builtin_rule["effective_to"],
+            region_type=builtin_rule["region_type"],
+            buyer_type=builtin_rule["buyer_type"],
+            purpose=builtin_rule["purpose"],
+            house_price_min=builtin_rule["house_price_min"],
+            house_price_max=builtin_rule["house_price_max"],
+            ltv_rate=0.99,
+            dsr_rate=builtin_rule["dsr_rate"],
+            max_loan_amount=builtin_rule["max_loan_amount"],
+            description="override after builtin",
+        )
+
+        rows = self.service.list_loan_rules()
+        overridden_row = next(row for row in rows if row["description"] == "override after builtin")
+        self.assertTrue(overridden_row["_editable"])
+        self.assertIsNotNone(overridden_row["_candidate_id"])
+
+        loan_terms = calculate_loan_terms(
+            sale_price=builtin_rule["house_price_min"],
+            region_type=builtin_rule["region_type"],
+            buyer_type=builtin_rule["buyer_type"],
+            purpose=builtin_rule["purpose"],
+            reference_date=date.fromisoformat(builtin_rule["effective_from"]),
+            rules=self.rule_runtime_service.get_active_loan_rules(),
+        )
+
+        self.assertEqual(loan_terms["applied_ltv_rate"], 0.99)
+        self.assertEqual(loan_terms["rule_version"], "manual-override-rule")
+
+    def test_loan_rule_can_be_deactivated_and_removed_from_current_list(self) -> None:
+        self.service.create_manual_loan_rule(
+            rule_version="manual-deactivate-target",
+            effective_from="2026-06-01",
+            effective_to=None,
+            region_type="NON_REGULATED",
+            buyer_type="ALL",
+            purpose="OWNER_OCCUPIED",
+            house_price_min=0,
+            house_price_max=899_999_999,
+            ltv_rate=0.65,
+            dsr_rate=0.40,
+            max_loan_amount=None,
+            description="deactivate target",
+        )
+        target_row = next(
+            row for row in self.service.list_loan_rules(reference_date=date(2026, 6, 6))
+            if row["description"] == "deactivate target"
+        )
+
+        self.service.deactivate_loan_rule(
+            selected_summary=target_row,
+            inactive_from="2026-06-06",
+        )
+
+        current_rows = self.service.list_loan_rules(reference_date=date(2026, 6, 6), current_only=True)
+        all_rows = self.service.list_loan_rules(reference_date=date(2026, 6, 6), current_only=False)
+        self.assertFalse(any(row["description"] == "deactivate target" for row in current_rows))
+        deactivated_row = next(row for row in all_rows if row["description"] == "deactivate target")
+        self.assertEqual(deactivated_row["state"], "비활성/만료")
+
+    def test_loan_rule_display_keeps_only_latest_current_rule_per_band(self) -> None:
+        self.service.create_manual_loan_rule(
+            rule_version="manual-current-overlap",
+            effective_from="2026-06-01",
+            effective_to=None,
+            region_type="NON_REGULATED",
+            buyer_type="NO_HOME",
+            purpose="OWNER_OCCUPIED",
+            house_price_min=0,
+            house_price_max=899_999_999,
+            ltv_rate=0.65,
+            dsr_rate=0.40,
+            max_loan_amount=None,
+            description="current overlap winner",
+        )
+
+        rows = self.service.list_loan_rules(reference_date=date(2026, 6, 5))
+        matching_rows = [
+            row
+            for row in rows
+            if row["_rule_payload"]["region_type"] == "NON_REGULATED"
+            and row["_rule_payload"]["buyer_type"] == "NO_HOME"
+            and row["_rule_payload"]["purpose"] == "OWNER_OCCUPIED"
+            and row["_rule_payload"]["house_price_min"] == 0
+            and row["_rule_payload"]["house_price_max"] == 899_999_999
+        ]
+
+        self.assertEqual(len(matching_rows), 1)
+        self.assertEqual(matching_rows[0]["description"], "current overlap winner")
+        self.assertTrue(matching_rows[0]["_editable"])
+
+    def test_current_only_filter_hides_future_rule_but_all_view_keeps_it(self) -> None:
+        self.service.create_manual_loan_rule(
+            rule_version="manual-future-rule",
+            effective_from="2026-07-01",
+            effective_to=None,
+            region_type="NON_REGULATED",
+            buyer_type="ALL",
+            purpose="OWNER_OCCUPIED",
+            house_price_min=0,
+            house_price_max=899_999_999,
+            ltv_rate=0.61,
+            dsr_rate=0.40,
+            max_loan_amount=500_000_000,
+            description="future rule",
+        )
+
+        current_rows = self.service.list_loan_rules(reference_date=date(2026, 6, 6), current_only=True)
+        all_rows = self.service.list_loan_rules(reference_date=date(2026, 6, 6), current_only=False)
+
+        self.assertFalse(any(row["description"] == "future rule" for row in current_rows))
+        self.assertTrue(any(row["description"] == "future rule" for row in all_rows))
+        future_row = next(row for row in all_rows if row["description"] == "future rule")
+        self.assertEqual(future_row["state"], "예정")
+
+    def test_bulk_update_filters_and_updates_matching_rules(self) -> None:
+        self.service.create_manual_loan_rule(
+            rule_version="bulk-update-v1",
+            effective_from="2026-06-01",
+            effective_to=None,
+            region_type="NON_REGULATED",
+            buyer_type="ALL",
+            purpose="OWNER_OCCUPIED",
+            house_price_min=0,
+            house_price_max=899_999_999,
+            ltv_rate=0.65,
+            dsr_rate=0.40,
+            max_loan_amount=None,
+            description="bulk update 1",
+        )
+        self.service.create_manual_loan_rule(
+            rule_version="bulk-update-v1",
+            effective_from="2026-06-01",
+            effective_to=None,
+            region_type="NON_REGULATED",
+            buyer_type="ALL",
+            purpose="OWNER_OCCUPIED",
+            house_price_min=900_000_000,
+            house_price_max=1_499_999_999,
+            ltv_rate=0.60,
+            dsr_rate=0.40,
+            max_loan_amount=None,
+            description="bulk update 2",
+        )
+        targets = self.service.filter_editable_loan_rules(
+            rule_version="bulk-update-v1",
+            purpose="OWNER_OCCUPIED",
+            region_type="NON_REGULATED",
+            buyer_type="ALL",
+            current_only=True,
+            reference_date=date(2026, 6, 6),
+        )
+
+        updated_count = self.service.bulk_update_applied_loan_rules(
+            candidate_ids=[int(item["candidate_id"]) for item in targets],
+            ltv_rate=0.50,
+            description="bulk updated",
+        )
+
+        self.assertEqual(updated_count, 2)
+        refreshed = self.service.filter_editable_loan_rules(rule_version="bulk-update-v1")
+        self.assertTrue(all(item["ltv_rate"] == 0.50 for item in refreshed))
+        self.assertTrue(all(item["description"] == "bulk updated" for item in refreshed))
+
+    def test_current_conflicts_are_detected(self) -> None:
+        self.service.create_manual_loan_rule(
+            rule_version="conflict-a",
+            effective_from="2026-06-01",
+            effective_to=None,
+            region_type="NON_REGULATED",
+            buyer_type="ALL",
+            purpose="INVESTMENT",
+            house_price_min=0,
+            house_price_max=899_999_999,
+            ltv_rate=0.60,
+            dsr_rate=0.40,
+            max_loan_amount=None,
+            description="conflict a",
+        )
+        self.service.create_manual_loan_rule(
+            rule_version="conflict-b",
+            effective_from="2026-06-02",
+            effective_to=None,
+            region_type="NON_REGULATED",
+            buyer_type="ALL",
+            purpose="INVESTMENT",
+            house_price_min=0,
+            house_price_max=899_999_999,
+            ltv_rate=0.55,
+            dsr_rate=0.40,
+            max_loan_amount=None,
+            description="conflict b",
+        )
+
+        conflicts = self.service.list_loan_rule_conflicts(reference_date=date(2026, 6, 6))
+
+        self.assertTrue(any(item["buyer_type"] == "전체" and item["count"] >= 2 for item in conflicts))
+
+    def test_loan_rule_display_name_uses_consistent_eok_units(self) -> None:
+        self.service.create_manual_loan_rule(
+            rule_version="manual-open-ended-band",
+            effective_from="2026-06-01",
+            effective_to=None,
+            region_type="NON_REGULATED",
+            buyer_type="ALL",
+            purpose="INVESTMENT",
+            house_price_min=1_500_000_000,
+            house_price_max=None,
+            ltv_rate=0.50,
+            dsr_rate=0.40,
+            max_loan_amount=None,
+            description="open ended band",
+        )
+
+        rows = self.service.list_loan_rules(reference_date=date(2026, 6, 5))
+        target_row = next(row for row in rows if row["description"] == "open ended band")
+
+        self.assertIn("15억 이상", target_row["rule_name"])
+        self.assertNotIn("원", target_row["rule_name"])
+
     def test_tax_rules_expand_brackets_for_display(self) -> None:
         rows = self.service.list_tax_rules()
 
@@ -173,7 +587,7 @@ class RuleAdminServiceTests(unittest.TestCase):
             },
         )
         self.assertEqual(rows[0]["policy_type"], "규제지역(기존 상위개념)")
-        self.assertEqual(rows[0]["loan_region_type"], "규제지역")
+        self.assertEqual(rows[0]["loan_region_type"], "공통 규제 규칙")
 
 
 if __name__ == "__main__":

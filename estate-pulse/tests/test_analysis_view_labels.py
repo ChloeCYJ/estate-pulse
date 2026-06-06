@@ -27,6 +27,7 @@ class AnalysisViewLabelTests(unittest.TestCase):
 
     def test_region_codes_are_translated(self) -> None:
         self.assertEqual(_loan_region_type_label("NON_REGULATED"), "비규제지역")
+        self.assertEqual(_loan_region_type_label("REGULATED"), "공통 규제 규칙")
         self.assertEqual(_region_policy_type_label("ADJUSTMENT_TARGET"), "조정대상지역")
         self.assertEqual(_region_policy_type_label("SPECULATION_OVERHEATED"), "투기과열지구")
         self.assertEqual(
@@ -69,11 +70,19 @@ class AnalysisViewLabelTests(unittest.TestCase):
     def test_missing_metric_reason_explains_unavailable_repayment_metrics(self) -> None:
         self.assertEqual(
             _missing_metric_reason("monthly_repayment", None),
-            "금리 또는 대출기간 정보가 없어 계산하지 않았습니다.",
+            "금리 정보가 없어 계산하지 않았습니다.",
         )
         self.assertEqual(
             _missing_metric_reason("dsr", None),
             "연소득 정보가 없어 계산하지 않았습니다.",
+        )
+        self.assertEqual(
+            _missing_metric_reason(
+                "dsr",
+                None,
+                explicit_reason="실거주 분석에서만 계산합니다.",
+            ),
+            "실거주 분석에서만 계산합니다.",
         )
         self.assertIsNone(_missing_metric_reason("dsr", 35.0))
 

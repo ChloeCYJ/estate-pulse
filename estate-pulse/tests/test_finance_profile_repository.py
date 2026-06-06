@@ -21,9 +21,9 @@ class UserFinanceProfileRepositoryTests(unittest.TestCase):
     def test_create_and_update_extended_finance_profile_fields(self) -> None:
         profile_id = self.repository.create(
             cash_amount=300_000_000,
-            annual_income=None,
+            annual_income=120_000_000,
             existing_debt=120_000_000,
-            interest_rate=None,
+            interest_rate=0.04,
             ltv_limit=None,
             dsr_limit=None,
             home_count=2,
@@ -38,6 +38,8 @@ class UserFinanceProfileRepositoryTests(unittest.TestCase):
         profile = self.repository.get(profile_id)
 
         self.assertEqual(profile["home_count"], 2)
+        self.assertEqual(profile["annual_income"], 120_000_000)
+        self.assertEqual(profile["interest_rate"], 0.04)
         self.assertEqual(profile["owned_real_estate_value"], 900_000_000)
         self.assertEqual(profile["owned_real_estate_debt"], 400_000_000)
         self.assertEqual(profile["credit_loan_balance"], 50_000_000)
@@ -48,9 +50,9 @@ class UserFinanceProfileRepositoryTests(unittest.TestCase):
         self.repository.update(
             profile_id,
             cash_amount=350_000_000,
-            annual_income=None,
+            annual_income=80_000_000,
             existing_debt=100_000_000,
-            interest_rate=None,
+            interest_rate=0.035,
             ltv_limit=None,
             dsr_limit=None,
             home_count=1,
@@ -64,6 +66,8 @@ class UserFinanceProfileRepositoryTests(unittest.TestCase):
         updated = self.repository.get(profile_id)
 
         self.assertEqual(updated["cash_amount"], 350_000_000)
+        self.assertEqual(updated["annual_income"], 80_000_000)
+        self.assertEqual(updated["interest_rate"], 0.035)
         self.assertEqual(updated["home_count"], 1)
         self.assertEqual(updated["use_manual_ltv"], 0)
         self.assertIsNone(updated["manual_ltv_rate"])

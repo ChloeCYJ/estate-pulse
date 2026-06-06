@@ -60,6 +60,38 @@
 
 This section reflects the current Estate Pulse implementation and should be followed for new Codex work.
 
+### Every Task Must
+
+- Read `AGENTS.md`, `README.md`, `docs/ARCHITECTURE.md`, `docs/CODEX_GUIDE.md`, and `docs/REVIEW_GUIDE.md`
+- Review existing implementation first
+- Avoid duplicate implementation
+- Keep changes minimal
+- Do not touch protected paths
+- Report changed files, tests, and known limitations
+
+## Token Usage Mode
+
+Use Low Token Mode by default for small UI, label, wording, and layout changes.
+
+Low Token Mode:
+
+- Read only directly relevant files.
+- Do not print long code excerpts.
+- Keep review summary within 5 lines.
+- Minimize progress narration.
+- Run targeted tests first.
+- Run full test suite only when explicitly requested or when core logic changes.
+
+Use Full Review Mode only for:
+
+- DB schema changes
+- Analysis/Analyzer logic changes
+- Loan/Tax/Fee rule changes
+- Region Regulation changes
+- Policy import/candidate approval changes
+- FastAPI/PostgreSQL migration work
+- Major architecture changes
+
 ### Required Reading Before Work
 
 Read these files before implementation work:
@@ -68,6 +100,7 @@ Read these files before implementation work:
 - `README.md`
 - `docs/ARCHITECTURE.md`
 - `docs/CODEX_GUIDE.md`
+- `docs/REVIEW_GUIDE.md`
 
 Also inspect the current code implementation before changing behavior. Do not duplicate functionality that already exists.
 
@@ -160,6 +193,11 @@ Finance Profile:
 - It is not yet a normalized N:M notice-to-region-to-regulation structure.
 - SQLite does not enforce enum/check constraints for policy types; Service validation controls supported values.
 - Consider PostgreSQL CHECK constraints or regulation type master tables during migration.
+- `buyer_type` may add only `ALL` as a shared/common rule target.
+- `FIRST_TIME`, `NEWLY_MARRIED`, and `END_USER_BENEFIT` style concepts should not be added to `buyer_type`.
+- Those concepts should be treated as future `benefit_type` candidates instead.
+- `benefit_type` is not implemented now.
+- Long term, keep `buyer_type` and `benefit_type` as separate concepts.
 
 ### Test Command
 
