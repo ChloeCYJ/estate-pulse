@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import date, datetime, timedelta
 
+from config.loan_rules import HOUSE_PRICE_BRACKETS
 from modules.utils.money_utils import format_won
 
 LOAN_REGION_TYPE_OPTIONS = (
@@ -120,6 +121,195 @@ class RuleAdminService:
     def list_loan_rule_versions(self) -> list[str]:
         versions = {str(rule.rule_version) for rule in self.rule_runtime_service.get_active_loan_rules()}
         return sorted(versions)
+
+    def query_current_loan_rules(
+        self,
+        *,
+        purpose: str | None = None,
+        region_type: str | None = None,
+        buyer_type: str | None = None,
+        house_price: int | None = None,
+        rule_version: str | None = None,
+        reference_date: date | None = None,
+    ) -> list[dict[str, str]]:
+        target_date = reference_date or date.today()
+        editable_candidate_ids = _editable_loan_candidate_ids(self.rule_candidate_repository)
+        rows: list[dict[str, str]] = []
+        matched_rules = [
+            rule
+            for rule in self.rule_runtime_service.get_active_loan_rules()
+            if rule.is_effective_on(target_date)
+            and (purpose is None or rule.purpose == purpose)
+            and (rule_version is None or str(rule.rule_version) == rule_version)
+            and _loan_rule_matches_region_filter(rule.region_type, region_type)
+            and _loan_rule_matches_buyer_filter(rule.buyer_type, buyer_type)
+            and (house_price is None or rule.matches_price(house_price))
+        ]
+        matched_rules.sort(
+            key=lambda item: (
+                0 if _loan_rule_is_exact_region_match(item.region_type, region_type) else 1,
+                0 if _loan_rule_is_exact_buyer_match(item.buyer_type, buyer_type) else 1,
+                item.house_price_min,
+                item.house_price_max or 10**30,
+                item.rule_version,
+            )
+        )
+        for rule in matched_rules:
+            rule_payload = _loan_rule_payload(rule)
+            candidate_id = editable_candidate_ids.get(_loan_rule_identity_key(rule))
+            rows.append(
+                {
+                    "rule_version": rule.rule_version,
+                    "rule_name": _loan_rule_display_name(rule),
+                    "effective_from": rule.effective_from,
+                    "effective_to": rule.effective_to or "-",
+                    "state": _loan_rule_state_label(rule_payload, target_date),
+                    "investment_purpose": _purpose_label(rule.purpose),
+                    "region_type": _region_type_label(rule.region_type),
+                    "buyer_type": _buyer_type_label(rule.buyer_type),
+                    "house_price_range": _format_price_range(rule.house_price_min, rule.house_price_max),
+                    "ltv_rate": _format_ratio(rule.ltv_rate),
+                    "dsr_rate": _format_ratio(rule.dsr_rate),
+                    "max_loan_amount": _format_money_or_unlimited(rule.max_loan_amount),
+                    "conditions": _loan_conditions(rule.purpose, rule.region_type, rule.buyer_type),
+                    "description": rule.description,
+                    "_candidate_id": candidate_id,
+                    "_editable": candidate_id is not None,
+                    "_rule_payload": rule_payload,
+                }
+            )
+        return rows
+
+    def list_default_loan_price_bands(self) -> list[dict[str, int | None]]:
+        return [
+            {
+                "house_price_min": int(house_price_min),
+                "house_price_max": None if house_price_max is None else int(house_price_max),
+            }
+            for house_price_min, house_price_max in HOUSE_PRICE_BRACKETS
+        ]
+
+    def preview_manual_loan_rule_batch(
+        self,
+        *,
+        rule_version: str,
+        effective_from: str,
+        effective_to: str | None,
+        region_type: str,
+        buyer_type: str,
+        purpose: str,
+        description: str,
+        matrix_rows: list[dict],
+    ) -> dict:
+        if not matrix_rows:
+            raise ValueError("생성할 가격 구간 행이 없습니다.")
+
+        shared_rule_version = rule_version.strip() or _manual_rule_version()
+        normalized_rows: list[dict] = []
+        batch_counts: dict[tuple, int] = {}
+        for row in matrix_rows:
+            payload = _normalize_manual_loan_rule(
+                rule_version=shared_rule_version,
+                effective_from=effective_from,
+                effective_to=effective_to,
+                region_type=region_type,
+                buyer_type=buyer_type,
+                purpose=purpose,
+                house_price_min=int(row["house_price_min"]),
+                house_price_max=(
+                    None if row.get("house_price_max") is None else int(row["house_price_max"])
+                ),
+                ltv_rate=float(row["ltv_rate"]),
+                dsr_rate=float(row["dsr_rate"]),
+                max_loan_amount=(
+                    None if row.get("max_loan_amount") is None else int(row["max_loan_amount"])
+                ),
+                description=description,
+            )
+            normalized_rows.append(payload)
+            band_key = _loan_rule_band_key(payload)
+            batch_counts[band_key] = batch_counts.get(band_key, 0) + 1
+
+        preview_date = date.fromisoformat(effective_from)
+        current_counts = _current_loan_rule_band_counts(
+            self.rule_runtime_service.get_active_loan_rules(),
+            reference_date=preview_date,
+        )
+        preview_rows: list[dict[str, str | int | bool | None]] = []
+        for payload in normalized_rows:
+            band_key = _loan_rule_band_key(payload)
+            current_overlap_count = current_counts.get(band_key, 0)
+            preview_rows.append(
+                {
+                    "rule_version": payload["rule_version"],
+                    "purpose": _purpose_label(payload["purpose"]),
+                    "region_type": _region_type_label(payload["region_type"]),
+                    "buyer_type": _buyer_type_label(payload["buyer_type"]),
+                    "house_price_range": _format_price_range(
+                        payload["house_price_min"],
+                        payload["house_price_max"],
+                    ),
+                    "ltv_rate": _format_ratio(payload["ltv_rate"]),
+                    "dsr_rate": _format_ratio(payload["dsr_rate"]),
+                    "max_loan_amount": _format_money_or_unlimited(payload["max_loan_amount"]),
+                    "effective_from": payload["effective_from"],
+                    "effective_to": payload["effective_to"] or "-",
+                    "duplicate_in_batch": batch_counts[band_key] > 1,
+                    "current_overlap_count": current_overlap_count,
+                    "current_overlap": current_overlap_count > 0,
+                }
+            )
+
+        warnings: list[str] = []
+        duplicate_rows = sum(1 for item in preview_rows if item["duplicate_in_batch"])
+        if duplicate_rows:
+            warnings.append(
+                f"동일 조건의 가격구간 row가 Wizard 안에 {duplicate_rows}건 포함되어 있습니다."
+            )
+        overlap_rows = sum(1 for item in preview_rows if item["current_overlap"])
+        if overlap_rows:
+            warnings.append(
+                f"현재 적용 중인 동일 조건 룰과 겹치는 row가 {overlap_rows}건 있습니다."
+            )
+
+        return {
+            "rule_version": shared_rule_version,
+            "row_count": len(normalized_rows),
+            "rows": normalized_rows,
+            "preview_rows": preview_rows,
+            "warnings": warnings,
+        }
+
+    def create_manual_loan_rule_rows(self, rows: list[dict]) -> list[int]:
+        created_ids: list[int] = []
+        for payload in rows:
+            created_ids.append(
+                self.create_manual_loan_rule(
+                    rule_version=str(payload["rule_version"]),
+                    effective_from=str(payload["effective_from"]),
+                    effective_to=(
+                        None if payload.get("effective_to") is None else str(payload["effective_to"])
+                    ),
+                    region_type=str(payload["region_type"]),
+                    buyer_type=str(payload["buyer_type"]),
+                    purpose=str(payload["purpose"]),
+                    house_price_min=int(payload["house_price_min"]),
+                    house_price_max=(
+                        None
+                        if payload.get("house_price_max") is None
+                        else int(payload["house_price_max"])
+                    ),
+                    ltv_rate=float(payload["ltv_rate"]),
+                    dsr_rate=float(payload["dsr_rate"]),
+                    max_loan_amount=(
+                        None
+                        if payload.get("max_loan_amount") is None
+                        else int(payload["max_loan_amount"])
+                    ),
+                    description=str(payload["description"]),
+                )
+            )
+        return created_ids
 
     def create_manual_loan_rule(
         self,
@@ -409,6 +599,8 @@ class RuleAdminService:
         purpose: str | None = None,
         region_type: str | None = None,
         buyer_type: str | None = None,
+        effective_from: str | None = None,
+        effective_to: str | None = None,
         current_only: bool | None = None,
         state: str | None = None,
         reference_date: date | None = None,
@@ -425,6 +617,11 @@ class RuleAdminService:
                 continue
             if buyer_type and str(row["buyer_type"]) != buyer_type:
                 continue
+            if effective_from and str(row["effective_from"]) != effective_from:
+                continue
+            row_effective_to = None if row.get("effective_to") is None else str(row["effective_to"])
+            if effective_to is not None and row_effective_to != effective_to:
+                continue
             is_current = _rule_payload_is_current(row, target_date)
             if current_only is True and not is_current:
                 continue
@@ -434,6 +631,95 @@ class RuleAdminService:
                 continue
             filtered.append(row)
         return filtered
+
+    def preview_bulk_update_applied_loan_rules(
+        self,
+        *,
+        candidate_ids: list[int],
+        rule_version: str | None = None,
+        ltv_rate: float | None = None,
+        dsr_rate: float | None = None,
+        max_loan_amount_changed: bool = False,
+        max_loan_amount: int | None = None,
+        effective_from_changed: bool = False,
+        effective_from: str | None = None,
+        effective_to_changed: bool = False,
+        effective_to: str | None = None,
+        description: str | None = None,
+        deactivate_from: str | None = None,
+    ) -> dict:
+        if deactivate_from is None and not any(
+            [
+                rule_version,
+                ltv_rate is not None,
+                dsr_rate is not None,
+                max_loan_amount_changed,
+                effective_from_changed,
+                effective_to_changed,
+                description is not None,
+            ]
+        ):
+            raise ValueError("일괄 변경할 항목을 선택하세요.")
+
+        preview_rows: list[dict[str, str]] = []
+        updated_rows: list[dict] = []
+        for candidate_id in dict.fromkeys(int(item) for item in candidate_ids):
+            candidate = self.rule_candidate_repository.get(candidate_id) if self.rule_candidate_repository else None
+            if not candidate or str(candidate.get("target_rule_type")) != "LOAN":
+                continue
+            payload = json.loads(candidate["proposed_rule_json"])
+            updated_payload = _loan_rule_payload(payload)
+            if deactivate_from is not None:
+                updated_payload["effective_to"] = (
+                    date.fromisoformat(deactivate_from) - timedelta(days=1)
+                ).isoformat()
+            else:
+                updated_payload["rule_version"] = rule_version or str(payload["rule_version"])
+                if ltv_rate is not None:
+                    updated_payload["ltv_rate"] = float(ltv_rate)
+                if dsr_rate is not None:
+                    updated_payload["dsr_rate"] = float(dsr_rate)
+                if max_loan_amount_changed:
+                    updated_payload["max_loan_amount"] = max_loan_amount
+                if effective_from_changed and effective_from is not None:
+                    updated_payload["effective_from"] = effective_from
+                if effective_to_changed:
+                    updated_payload["effective_to"] = effective_to
+                if description is not None:
+                    updated_payload["description"] = description
+            _validate_manual_loan_rule(updated_payload)
+            updated_rows.append({"candidate_id": candidate_id, "payload": updated_payload})
+            preview_rows.append(
+                {
+                    "candidate_id": str(candidate_id),
+                    "buyer_type": _buyer_type_label(str(payload["buyer_type"])),
+                    "house_price_range": _format_price_range(
+                        int(payload["house_price_min"]),
+                        None if payload.get("house_price_max") is None else int(payload["house_price_max"]),
+                    ),
+                    "before_rule_version": str(payload["rule_version"]),
+                    "after_rule_version": str(updated_payload["rule_version"]),
+                    "before_ltv_rate": _format_ratio(float(payload["ltv_rate"])),
+                    "after_ltv_rate": _format_ratio(float(updated_payload["ltv_rate"])),
+                    "before_dsr_rate": _format_ratio(float(payload["dsr_rate"])),
+                    "after_dsr_rate": _format_ratio(float(updated_payload["dsr_rate"])),
+                    "before_max_loan_amount": _format_money_or_unlimited(
+                        None if payload.get("max_loan_amount") is None else int(payload["max_loan_amount"])
+                    ),
+                    "after_max_loan_amount": _format_money_or_unlimited(updated_payload["max_loan_amount"]),
+                    "before_effective_from": str(payload["effective_from"]),
+                    "after_effective_from": str(updated_payload["effective_from"]),
+                    "before_effective_to": str(payload.get("effective_to") or "-"),
+                    "after_effective_to": str(updated_payload.get("effective_to") or "-"),
+                    "before_description": str(payload["description"]),
+                    "after_description": str(updated_payload["description"]),
+                }
+            )
+        return {
+            "row_count": len(preview_rows),
+            "rows": preview_rows,
+            "updated_rows": updated_rows,
+        }
 
     def bulk_update_applied_loan_rules(
         self,
@@ -483,6 +769,28 @@ class RuleAdminService:
             )
             updated_count += 1
         return updated_count
+
+    def deactivate_applied_loan_rules(
+        self,
+        *,
+        candidate_ids: list[int],
+        inactive_from: str,
+    ) -> int:
+        editable_rows = {int(item["candidate_id"]): item for item in self.list_editable_loan_rules()}
+        deactivated_count = 0
+        for candidate_id in dict.fromkeys(int(item) for item in candidate_ids):
+            row = editable_rows.get(candidate_id)
+            if row is None:
+                continue
+            self.deactivate_loan_rule(
+                selected_summary={
+                    "_candidate_id": row["candidate_id"],
+                    "_rule_payload": _loan_rule_payload(row),
+                },
+                inactive_from=inactive_from,
+            )
+            deactivated_count += 1
+        return deactivated_count
 
     def list_loan_rule_conflicts(self, *, reference_date: date | None = None) -> list[dict]:
         target_date = reference_date or date.today()
@@ -682,6 +990,75 @@ def _editable_loan_candidate_ids(rule_candidate_repository) -> dict[tuple, int]:
         payload = json.loads(candidate["proposed_rule_json"])
         ids[_loan_rule_identity_key(payload)] = int(candidate["id"])
     return ids
+
+
+def _current_loan_rule_band_counts(rules, *, reference_date: date) -> dict[tuple, int]:
+    counts: dict[tuple, int] = {}
+    for rule in rules:
+        if not rule.is_effective_on(reference_date):
+            continue
+        band_key = _loan_rule_band_key(rule)
+        counts[band_key] = counts.get(band_key, 0) + 1
+    return counts
+
+
+def _loan_rule_band_key(rule_or_payload) -> tuple:
+    return (
+        str(rule_or_payload["purpose"] if isinstance(rule_or_payload, dict) else rule_or_payload.purpose),
+        str(rule_or_payload["region_type"] if isinstance(rule_or_payload, dict) else rule_or_payload.region_type),
+        str(rule_or_payload["buyer_type"] if isinstance(rule_or_payload, dict) else rule_or_payload.buyer_type),
+        int(
+            rule_or_payload["house_price_min"]
+            if isinstance(rule_or_payload, dict)
+            else rule_or_payload.house_price_min
+        ),
+        (
+            None
+            if (
+                rule_or_payload.get("house_price_max")
+                if isinstance(rule_or_payload, dict)
+                else rule_or_payload.house_price_max
+            )
+            is None
+            else int(
+                rule_or_payload["house_price_max"]
+                if isinstance(rule_or_payload, dict)
+                else rule_or_payload.house_price_max
+            )
+        ),
+    )
+
+
+def _loan_rule_matches_region_filter(rule_region_type: str, region_filter: str | None) -> bool:
+    if region_filter is None:
+        return True
+    if region_filter == "REGULATED":
+        return rule_region_type == "REGULATED"
+    if region_filter in {
+        "LAND_TRANSACTION_PERMISSION",
+        "SPECULATION_OVERHEATED_DISTRICT",
+        "ADJUSTMENT_TARGET_AREA",
+    }:
+        return rule_region_type in {region_filter, "REGULATED"}
+    return rule_region_type == region_filter
+
+
+def _loan_rule_is_exact_region_match(rule_region_type: str, region_filter: str | None) -> bool:
+    if region_filter is None:
+        return True
+    return rule_region_type == region_filter
+
+
+def _loan_rule_matches_buyer_filter(rule_buyer_type: str, buyer_filter: str | None) -> bool:
+    if buyer_filter is None:
+        return True
+    return rule_buyer_type in {buyer_filter, "ALL"}
+
+
+def _loan_rule_is_exact_buyer_match(rule_buyer_type: str, buyer_filter: str | None) -> bool:
+    if buyer_filter is None:
+        return True
+    return rule_buyer_type == buyer_filter
 
 
 def _select_display_loan_rules(rules, *, reference_date: date | None) -> list:

@@ -589,6 +589,220 @@ class RuleAdminServiceTests(unittest.TestCase):
         self.assertEqual(rows[0]["policy_type"], "규제지역(기존 상위개념)")
         self.assertEqual(rows[0]["loan_region_type"], "공통 규제 규칙")
 
+    def test_wizard_preview_builds_rows_for_each_matrix_entry(self) -> None:
+        preview = self.service.preview_manual_loan_rule_batch(
+            rule_version="wizard-preview-v1",
+            effective_from="2026-06-01",
+            effective_to=None,
+            region_type="NON_REGULATED",
+            buyer_type="ALL",
+            purpose="OWNER_OCCUPIED",
+            description="wizard preview",
+            matrix_rows=[
+                {
+                    "house_price_min": 0,
+                    "house_price_max": 899_999_999,
+                    "ltv_rate": 0.60,
+                    "dsr_rate": 0.40,
+                    "max_loan_amount": None,
+                },
+                {
+                    "house_price_min": 900_000_000,
+                    "house_price_max": 1_499_999_999,
+                    "ltv_rate": 0.50,
+                    "dsr_rate": 0.40,
+                    "max_loan_amount": 500_000_000,
+                },
+            ],
+        )
+
+        self.assertEqual(preview["row_count"], 2)
+        self.assertEqual({row["rule_version"] for row in preview["rows"]}, {"wizard-preview-v1"})
+        self.assertEqual(len(preview["preview_rows"]), 2)
+
+    def test_wizard_rows_can_be_created_with_same_rule_version(self) -> None:
+        preview = self.service.preview_manual_loan_rule_batch(
+            rule_version="wizard-create-v1",
+            effective_from="2026-06-01",
+            effective_to=None,
+            region_type="NON_REGULATED",
+            buyer_type="ALL",
+            purpose="OWNER_OCCUPIED",
+            description="wizard create",
+            matrix_rows=[
+                {
+                    "house_price_min": 0,
+                    "house_price_max": 899_999_999,
+                    "ltv_rate": 0.60,
+                    "dsr_rate": 0.40,
+                    "max_loan_amount": None,
+                },
+                {
+                    "house_price_min": 900_000_000,
+                    "house_price_max": 1_499_999_999,
+                    "ltv_rate": 0.50,
+                    "dsr_rate": 0.40,
+                    "max_loan_amount": 500_000_000,
+                },
+            ],
+        )
+
+        created_ids = self.service.create_manual_loan_rule_rows(preview["rows"])
+
+        self.assertEqual(len(created_ids), 2)
+        rows = self.service.filter_editable_loan_rules(
+            rule_version="wizard-create-v1",
+            buyer_type="ALL",
+        )
+        self.assertEqual(len(rows), 2)
+
+    def test_editable_loan_rule_filters_support_effective_dates(self) -> None:
+        self.service.create_manual_loan_rule(
+            rule_version="date-filter-v1",
+            effective_from="2026-06-10",
+            effective_to="2026-06-30",
+            region_type="NON_REGULATED",
+            buyer_type="ALL",
+            purpose="OWNER_OCCUPIED",
+            house_price_min=0,
+            house_price_max=899_999_999,
+            ltv_rate=0.65,
+            dsr_rate=0.40,
+            max_loan_amount=None,
+            description="date filter target",
+        )
+
+        rows = self.service.filter_editable_loan_rules(
+            rule_version="date-filter-v1",
+            effective_from="2026-06-10",
+            effective_to="2026-06-30",
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["description"], "date filter target")
+
+    def test_bulk_update_preview_shows_before_and_after_values(self) -> None:
+        self.service.create_manual_loan_rule(
+            rule_version="bulk-preview-v1",
+            effective_from="2026-06-01",
+            effective_to=None,
+            region_type="NON_REGULATED",
+            buyer_type="ALL",
+            purpose="OWNER_OCCUPIED",
+            house_price_min=0,
+            house_price_max=899_999_999,
+            ltv_rate=0.65,
+            dsr_rate=0.40,
+            max_loan_amount=None,
+            description="bulk preview",
+        )
+        target = self.service.filter_editable_loan_rules(rule_version="bulk-preview-v1")[0]
+
+        preview = self.service.preview_bulk_update_applied_loan_rules(
+            candidate_ids=[int(target["candidate_id"])],
+            ltv_rate=0.55,
+            description="bulk preview updated",
+        )
+
+        self.assertEqual(preview["row_count"], 1)
+        self.assertEqual(preview["rows"][0]["before_ltv_rate"], "65.0%")
+        self.assertEqual(preview["rows"][0]["after_ltv_rate"], "55.0%")
+        self.assertEqual(preview["rows"][0]["after_description"], "bulk preview updated")
+
+    def test_bulk_deactivate_sets_effective_to_for_selected_rules(self) -> None:
+        self.service.create_manual_loan_rule(
+            rule_version="bulk-deactivate-v1",
+            effective_from="2026-06-01",
+            effective_to=None,
+            region_type="NON_REGULATED",
+            buyer_type="ALL",
+            purpose="OWNER_OCCUPIED",
+            house_price_min=0,
+            house_price_max=899_999_999,
+            ltv_rate=0.65,
+            dsr_rate=0.40,
+            max_loan_amount=None,
+            description="bulk deactivate 1",
+        )
+        self.service.create_manual_loan_rule(
+            rule_version="bulk-deactivate-v1",
+            effective_from="2026-06-01",
+            effective_to=None,
+            region_type="NON_REGULATED",
+            buyer_type="ALL",
+            purpose="OWNER_OCCUPIED",
+            house_price_min=900_000_000,
+            house_price_max=1_499_999_999,
+            ltv_rate=0.60,
+            dsr_rate=0.40,
+            max_loan_amount=None,
+            description="bulk deactivate 2",
+        )
+        targets = self.service.filter_editable_loan_rules(rule_version="bulk-deactivate-v1")
+
+        updated_count = self.service.deactivate_applied_loan_rules(
+            candidate_ids=[int(item["candidate_id"]) for item in targets],
+            inactive_from="2026-06-06",
+        )
+
+        self.assertEqual(updated_count, 2)
+        refreshed = self.service.filter_editable_loan_rules(rule_version="bulk-deactivate-v1")
+        self.assertTrue(all(item["effective_to"] == "2026-06-05" for item in refreshed))
+
+    def test_query_current_loan_rules_filters_by_condition(self) -> None:
+        rows = self.service.query_current_loan_rules(
+            purpose="OWNER_OCCUPIED",
+            region_type="NON_REGULATED",
+            buyer_type="NO_HOME",
+            reference_date=date(2026, 6, 7),
+        )
+
+        self.assertTrue(rows)
+        self.assertTrue(all(row["investment_purpose"] == "실거주" for row in rows))
+        self.assertTrue(all(row["region_type"] == "비규제지역" for row in rows))
+        self.assertTrue(all(row["buyer_type"] == "무주택" for row in rows))
+
+    def test_query_current_loan_rules_filters_by_house_price_band(self) -> None:
+        rows = self.service.query_current_loan_rules(
+            purpose="INVESTMENT",
+            region_type="NON_REGULATED",
+            buyer_type="NO_HOME",
+            house_price=1_900_000_000,
+            reference_date=date(2026, 6, 7),
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertIn("1,500,000,000원 ~ 2,499,999,999원", rows[0]["house_price_range"])
+
+    def test_query_current_loan_rules_includes_common_fallback_rules(self) -> None:
+        self.service.create_manual_loan_rule(
+            rule_version="query-fallback-v1",
+            effective_from="2026-06-01",
+            effective_to=None,
+            region_type="REGULATED",
+            buyer_type="ALL",
+            purpose="OWNER_OCCUPIED",
+            house_price_min=0,
+            house_price_max=899_999_999,
+            ltv_rate=0.45,
+            dsr_rate=0.40,
+            max_loan_amount=300_000_000,
+            description="query fallback",
+        )
+
+        rows = self.service.query_current_loan_rules(
+            purpose="OWNER_OCCUPIED",
+            region_type="LAND_TRANSACTION_PERMISSION",
+            buyer_type="ONE_HOME",
+            house_price=800_000_000,
+            rule_version="query-fallback-v1",
+            reference_date=date(2026, 6, 7),
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["region_type"], "공통 규제 규칙")
+        self.assertEqual(rows[0]["buyer_type"], "전체")
+
 
 if __name__ == "__main__":
     unittest.main()
