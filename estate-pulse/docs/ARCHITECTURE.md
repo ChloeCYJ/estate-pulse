@@ -288,11 +288,21 @@ Sell-side taxes, brokerage, early repayment fees, and sale price discounts are n
 ### Policy And Regulation Structure
 
 - Active region status is stored in `region_policy_status`.
+- Loan rules are still stored and applied as row-level records keyed by purpose, region type, buyer type, and house price band.
+- The active loan rule runtime still uses built-in config rows plus `rule_candidate` overlay rows. No dedicated `loan_rule` table was added.
 - Supported current regulation concepts are `NON_REGULATED_AREA`, `LAND_TRANSACTION_PERMISSION`, `SPECULATION_OVERHEATED_DISTRICT`, and `ADJUSTMENT_TARGET_AREA`.
 - `REGULATED_AREA` is retained for legacy compatibility but is not used as a new selection because it is a generic parent concept.
 - Existing `REGULATED_AREA` rows are not automatically converted.
 - Multiple active regulations for one region are represented by multiple rows, not by a normalized N:M master structure.
 - SQLite does not enforce enum/check constraints for policy type values in the current schema. Service-layer validation controls allowed values.
+
+### Loan Rule Admin Flow
+
+- Admin loan rule management keeps the existing row structure and adds UI/service helpers around it rather than redesigning the engine.
+- `RuleAdminService` now supports current-rule query filtering by purpose, region type, buyer type, house price, and `rule_version`.
+- The admin `Loan Rule Wizard` collects shared policy fields once and expands a price-band matrix into multiple row candidates with preview before save.
+- Batch update and batch deactivate continue to operate on applied/admin override candidate rows. Deactivate is implemented by setting `effective_to`; no `is_active` schema field was introduced.
+- The admin page now separates a filtered "current applicable loan rule" query view from the full grouped rule dump, which remains available for inspection.
 
 ### Menu Structure
 

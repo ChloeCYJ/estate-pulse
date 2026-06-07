@@ -17,6 +17,7 @@ The current build includes:
 - Watchlist, comparison, ranking, and analysis history
 - Policy import workflow with rule candidates and policy event candidates
 - Admin pages for policy events, rule management, regional regulation, and policy document review
+- Loan rule admin support for current-rule query, Wizard-style multi-row registration, inline row editing, batch update, and batch deactivate
 
 External API integration is intentionally not implemented yet. Public collector modules exist as stubs only, and no private platform scraping is included.
 
@@ -141,6 +142,9 @@ Comparison and ranking:
 Policy and regulation:
 
 - Loan rule management
+- Loan rule current-rule query filters by purpose, region type, buyer type, house price, and rule version
+- Loan rule Wizard registration for shared policy inputs plus price-band matrix preview
+- Loan rule batch update and batch deactivate for applied/admin override rows
 - Tax rule management
 - Brokerage/cost rule management
 - Regional regulation management
