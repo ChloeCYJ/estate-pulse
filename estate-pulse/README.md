@@ -131,6 +131,35 @@ Current user-facing labels in the Streamlit UI are:
 
 The current admin page groups work into `정책 운영`, `규칙 관리`, and `정책 수집/승인`.
 
+## Dashboard Design Principle
+
+Dashboard는 분석 결과를 나열하는 화면이 아니라
+"지금 무엇을 사야 하는가"에 대한 의사결정 화면을 목표로 한다.
+
+사용자에게는 다음 질문에 대한 답을 우선 제공한다.
+
+1. 지금 살 수 있는 후보가 있는가
+2. 가장 좋은 후보는 무엇인가
+3. 얼마가 부족한가
+4. 어떤 정책이 영향을 주는가
+
+세부 분석은 Analysis / Ranking 화면에서 확인한다.
+
+## Investment Score
+
+투자점수는 절대적인 가치 평가가 아니다.
+
+다음 요소를 종합하여 상대 비교용으로 사용한다.
+
+- 급매 매력도
+- 자금 효율성
+- 유동성
+- 단지 등급
+- 부족 자금 패널티
+
+동일 시점 후보 비교에 활용하며
+실제 투자 판단은 정책, 자금 계획, 실거주 목적 등을 함께 고려해야 한다.
+
 ## Current MVP Scope
 
 Analysis:

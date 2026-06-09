@@ -294,6 +294,7 @@ Sell-side taxes, brokerage, early repayment fees, and sale price discounts are n
 - Explainability reuses `investment_score`, `bargain_score`, `liquidity_score`, `complex_grade`, `required_cash_efficiency_score`, `shortage_cash`, and `jeonse_ratio` values that already exist in analysis results.
 - The `Scenario Analyzer` is implemented inside the analysis UI and reuses `AnalysisService` with temporary override inputs for sale price, jeonse price, interest rate, and one-time LTV.
 - Scenario results are shown as baseline vs changed comparisons for expected loan amount, total required cash, shortage cash, monthly burden, and investment score.
+- The `Scenario Analyzer` is not a predictive model. It is a what-if tool for immediately checking how funding burden and investment score change from the current analysis result when sale price, jeonse price, interest rate, or LTV changes.
 - Scenario-specific interpretation remains presentation-layer logic. No separate scenario persistence model or DB schema was added.
 
 ### Policy And Regulation Structure
