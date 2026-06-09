@@ -127,7 +127,7 @@ def main() -> None:
             analysis_service=analysis_service,
             settings=settings,
         ),
-        "관심단지": lambda: render_watchlist_page(
+        "투자 후보": lambda: render_watchlist_page(
             complex_repository=complex_repository,
             listing_repository=listing_repository,
             finance_repository=finance_repository,

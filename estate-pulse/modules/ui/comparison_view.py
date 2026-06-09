@@ -8,8 +8,8 @@ from modules.utils.money_utils import format_compact_won
 
 COMPARISON_SORT_OPTIONS = {
     "investment_score": "투자 점수",
-    "required_cash": "필요 현금",
-    "shortage_cash": "부족 현금",
+    "required_cash": "총 필요 현금",
+    "shortage_cash": "추가 필요 현금",
     "expected_loan_amount": "예상 대출",
     "total_transaction_cost": "거래 비용",
     "bargain_score": "급매 점수",
@@ -24,8 +24,11 @@ def render_comparison_page(
     finance_repository,
     opportunity_service,
 ) -> None:
-    st.title("Comparison")
-    st.caption("여러 매물을 같은 자금 기준으로 비교합니다. 실거래 데이터가 없는 매물은 분석 불가로 표시됩니다.")
+    st.title("매물 비교")
+    st.caption(
+        "동일한 자금 조건으로 여러 매물을 동시에 비교합니다. "
+        "어떤 매물이 가장 투자 가치가 높은지 확인할 수 있습니다."
+    )
 
     listings = listing_repository.list_all()
     profiles = finance_repository.list_all()
@@ -82,12 +85,9 @@ def render_comparison_page(
     display_df = pd.DataFrame(rows)[
         [
             "complex_name",
-            "analysis_status",
-            "analysis_error",
             "sale_price",
             "required_cash",
             "shortage_cash",
-            "expected_loan_amount",
             "total_transaction_cost",
             "bargain_score",
             "jeonse_ratio",
@@ -98,12 +98,9 @@ def render_comparison_page(
     ].rename(
         columns={
             "complex_name": "단지",
-            "analysis_status": "상태",
-            "analysis_error": "메모",
             "sale_price": "매물가",
-            "required_cash": "필요 현금",
-            "shortage_cash": "부족 현금",
-            "expected_loan_amount": "예상 대출",
+            "required_cash": "총 필요 현금",
+            "shortage_cash": "추가 필요 현금",
             "total_transaction_cost": "거래 비용",
             "bargain_score": "급매 점수",
             "jeonse_ratio": "전세가율",
@@ -112,7 +109,7 @@ def render_comparison_page(
             "investment_score": "투자 점수",
         }
     )
-    for column in ["매물가", "필요 현금", "부족 현금", "예상 대출", "거래 비용"]:
+    for column in ["매물가", "총 필요 현금", "추가 필요 현금", "거래 비용"]:
         display_df[column] = display_df[column].map(_format_money_or_dash)
     display_df["전세가율"] = display_df["전세가율"].map(_format_percent_or_dash)
     st.dataframe(display_df, use_container_width=True, hide_index=True)

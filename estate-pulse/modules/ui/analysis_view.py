@@ -227,16 +227,12 @@ def _render_analysis_metrics(result: dict) -> None:
 
     st.write("핵심 자금 판단")
     _render_core_cash_metrics(result)
+    st.write("투자 판단 근거")
+    _render_explainability_summary(result)
 
-    st.write("보조 지표")
-    detail_cols = st.columns(4)
-    detail_cols[0].metric("투자 점수", str(result["investment_score"]))
-    detail_cols[1].metric("급매 점수", f"{result['bargain_score']} ({result['bargain_grade']})")
-    detail_cols[2].metric("전세가율", f"{result['jeonse_ratio']:.1f}%")
-    detail_cols[3].metric("단지 등급", _complex_grade_label(result.get("complex_grade")))
-
-    extra_cols = st.columns(3)
     if result["primary_user_mode"] == "INVESTMENT":
+        extra_cols = st.columns(3)
+        st.write("추가 참고 지표")
         extra_cols[0].metric("갭 금액", format_compact_won(result["gap_amount"]))
         extra_cols[1].metric(
             "자금 효율 점수",
@@ -247,6 +243,9 @@ def _render_analysis_metrics(result: dict) -> None:
             _format_efficiency(result["estimated_investment_efficiency"]),
         )
     else:
+        st.write("추가 참고 지표")
+        cash_balance_after_purchase = _cash_judgment(result)["cash_balance_after_purchase"]
+        extra_cols = st.columns(3 if cash_balance_after_purchase >= 0 else 2)
         extra_cols[0].metric("월 상환액", _format_optional_money(result["monthly_repayment"]))
         applied_rules = result.get("applied_rules") or {}
         repayment_reason = _missing_metric_reason(
@@ -264,10 +263,11 @@ def _render_analysis_metrics(result: dict) -> None:
         )
         if dsr_reason:
             extra_cols[1].caption(dsr_reason)
-        extra_cols[2].metric(
-            "매수 후 현금 잔액",
-            format_compact_won(_cash_judgment(result)["cash_balance_after_purchase"]),
-        )
+        if cash_balance_after_purchase >= 0:
+            extra_cols[2].metric(
+                "매수 후 현금 잔액",
+                format_compact_won(cash_balance_after_purchase),
+            )
 
     st.caption(f"판정: {result['decision']}")
 
@@ -329,6 +329,40 @@ def _render_core_cash_metrics(result: dict) -> None:
         format_compact_won(judgment["additional_cash_required"]),
     )
     top_cols[3].metric("예상 대출", format_compact_won(result["expected_loan_amount"]))
+
+
+def _render_explainability_summary(result: dict) -> None:
+    reason_cols = st.columns(4)
+    reason_cols[0].metric("투자점수", str(result["investment_score"]))
+    reason_cols[0].caption(_investment_score_reason(result))
+    reason_cols[1].metric("급매점수", f"{result['bargain_score']}점")
+    reason_cols[1].caption(_bargain_score_reason(result))
+    reason_cols[2].metric("전세가율", f"{result['jeonse_ratio']:.1f}%")
+    reason_cols[2].caption(_jeonse_ratio_reason(result.get("jeonse_ratio")))
+    reason_cols[3].metric("단지등급", _complex_grade_label(result.get("complex_grade")))
+    reason_cols[3].caption(_complex_grade_reason(result))
+
+    bargain_rows = [
+        {
+            "항목": "최근 평균가",
+            "값": format_compact_won(result["derived_inputs"]["recent_avg_price"]),
+        },
+        {
+            "항목": "1년 최고가",
+            "값": format_compact_won(result["derived_inputs"]["one_year_high_price"]),
+        },
+        {
+            "항목": "최근 평균가 대비 할인율",
+            "값": _discount_vs_average_label(result.get("discount_vs_recent_avg")),
+        },
+        {
+            "항목": "1년 최고가 대비 하락률",
+            "값": _drop_from_high_label(result.get("drop_from_high")),
+        },
+    ]
+    st.caption("급매 점수 근거")
+    st.dataframe(pd.DataFrame(bargain_rows), use_container_width=True, hide_index=True)
+    _render_investment_score_drivers(result)
 
 
 def _cash_judgment(result: dict) -> dict[str, int | bool]:
@@ -1021,6 +1055,34 @@ def _format_efficiency(value: float | None) -> str:
     return f"{value:.2f}배"
 
 
+def _format_signed_percent(value: float | None) -> str:
+    if _is_missing_value(value):
+        return "정보 없음"
+    return f"{float(value):.1f}%"
+
+
+def _discount_vs_average_label(value: float | None) -> str:
+    if _is_missing_value(value):
+        return "정보 없음"
+    discount_rate = float(value)
+    if discount_rate < 0:
+        return f"최근 평균 대비 {abs(discount_rate):.1f}% 비쌈"
+    if discount_rate == 0:
+        return "할인 없음"
+    return f"{discount_rate:.1f}% 할인"
+
+
+def _drop_from_high_label(value: float | None) -> str:
+    if _is_missing_value(value):
+        return "정보 없음"
+    drop_rate = float(value)
+    if drop_rate < 0:
+        return f"1년 최고가 대비 {abs(drop_rate):.1f}% 비쌈"
+    if drop_rate == 0:
+        return "하락 없음"
+    return f"{drop_rate:.1f}% 하락"
+
+
 def _display_value(value: object, *, empty: str = "-") -> str:
     if _is_missing_value(value):
         return empty
@@ -1049,6 +1111,131 @@ def _liquidity_label(value: object) -> str:
         "normal liquidity": "유동성 보통",
         "low liquidity": "유동성 낮음",
     }.get(text, text)
+
+
+def _investment_score_reason(result: dict) -> str:
+    shortage_cash = int(result.get("shortage_cash") or 0)
+    score = int(result.get("investment_score") or 0)
+    if shortage_cash > 0:
+        return "추가 필요 현금 부담이 큼"
+    if score >= 70:
+        return "급매·유동성·자금 효율이 전반적으로 양호"
+    if score >= 50:
+        return "급매도와 유동성은 보통 수준"
+    return "급매도·유동성·자금 효율 점수가 낮음"
+
+
+def _render_investment_score_drivers(result: dict) -> None:
+    positive_factors = _investment_score_positive_factors(result)
+    negative_factors = _investment_score_negative_factors(result)
+    if not positive_factors and not negative_factors:
+        return
+
+    st.write("투자점수 주요 요인")
+    cols = st.columns(2)
+    with cols[0]:
+        st.markdown("**긍정 요인**")
+        if positive_factors:
+            for factor in positive_factors:
+                st.write(f"- {factor}")
+        else:
+            st.caption("뚜렷한 긍정 요인 없음")
+    with cols[1]:
+        st.markdown("**감점 요인**")
+        if negative_factors:
+            for factor in negative_factors:
+                st.write(f"- {factor}")
+        else:
+            st.caption("뚜렷한 감점 요인 없음")
+
+    st.caption("전세가율은 투자점수에 직접 반영되기보다 급매/투자 매력 판단에 참고됩니다.")
+
+
+def _investment_score_positive_factors(result: dict) -> list[str]:
+    factors: list[str] = []
+    liquidity_score = result.get("liquidity_score")
+    if liquidity_score is not None and float(liquidity_score) >= 80:
+        factors.append("유동성 점수가 높아 매도 가능성은 양호합니다.")
+
+    complex_grade = str(result.get("complex_grade") or "")
+    if complex_grade in {"LEADER", "SUB_LEADER"}:
+        factors.append("단지등급이 높아 입지/수요 측면에서 긍정적입니다.")
+
+    efficiency_score = result.get("required_cash_efficiency_score")
+    if efficiency_score is not None and float(efficiency_score) >= 60:
+        factors.append("자금효율이 양호해 필요한 자기자본 부담이 상대적으로 낮습니다.")
+
+    bargain_score = result.get("bargain_score")
+    if bargain_score is not None and float(bargain_score) >= 60:
+        factors.append("급매점수가 높아 가격 매력도가 있습니다.")
+
+    jeonse_ratio = result.get("jeonse_ratio")
+    if jeonse_ratio is not None and float(jeonse_ratio) >= 70:
+        factors.append("전세가율이 높아 자금 회수 측면에서 유리합니다.")
+    return factors
+
+
+def _investment_score_negative_factors(result: dict) -> list[str]:
+    factors: list[str] = []
+    shortage_cash = int(result.get("shortage_cash") or 0)
+    if shortage_cash > 0:
+        factors.append(f"추가 필요 현금이 커서 점수에 불리합니다. ({format_compact_won(shortage_cash)})")
+
+    bargain_score = result.get("bargain_score")
+    if bargain_score is not None and float(bargain_score) <= 20:
+        factors.append("급매점수가 낮아 매수 매력은 제한적입니다.")
+
+    jeonse_ratio = result.get("jeonse_ratio")
+    if jeonse_ratio is not None and float(jeonse_ratio) < 60:
+        factors.append("전세가율이 낮아 투자 매력 보완 요인이 약합니다.")
+
+    liquidity_score = result.get("liquidity_score")
+    if liquidity_score is not None and float(liquidity_score) < 35:
+        factors.append("유동성 점수가 낮아 매도 가능성은 보수적으로 봐야 합니다.")
+
+    efficiency_score = result.get("required_cash_efficiency_score")
+    if efficiency_score is not None and float(efficiency_score) < 40:
+        factors.append("자금효율이 낮아 필요한 자기자본 부담이 큽니다.")
+
+    complex_grade = str(result.get("complex_grade") or "")
+    if complex_grade in {"SMALL", "RISKY"}:
+        factors.append("단지등급이 낮아 입지/수요 측면에서 보수적입니다.")
+    return factors
+
+
+def _bargain_score_reason(result: dict) -> str:
+    discount_rate = float(result.get("discount_vs_recent_avg") or 0.0)
+    drop_from_high = float(result.get("drop_from_high") or 0.0)
+    if discount_rate >= 10:
+        return "최근 평균가 대비 할인 폭이 큼"
+    if discount_rate >= 5:
+        return "최근 평균가 대비 의미 있는 할인"
+    if drop_from_high >= 10:
+        return "고점 대비 하락은 있으나 할인 폭은 제한적"
+    return "최근 평균가 대비 할인 없음"
+
+
+def _jeonse_ratio_reason(value: float | None) -> str:
+    if _is_missing_value(value):
+        return "설명 정보 없음"
+    ratio = float(value)
+    if ratio >= 70:
+        return "높음"
+    if ratio >= 60:
+        return "보통"
+    return "낮음"
+
+
+def _complex_grade_reason(result: dict) -> str:
+    profile = result.get("complex_profile") or {}
+    liquidity_score = int(profile.get("liquidity_score") or 0)
+    sale_count = int(profile.get("recent_sale_transaction_count") or 0)
+    rent_count = int(profile.get("recent_rent_transaction_count") or 0)
+    if liquidity_score >= 80 or sale_count + rent_count >= 12:
+        return "유동성과 거래량 반영"
+    if liquidity_score < 35 or sale_count + rent_count < 3:
+        return "유동성 또는 거래량이 약함"
+    return "유동성과 거래량을 함께 반영"
 
 
 def _impact_level_label(value: object) -> str:

@@ -84,6 +84,7 @@ def render_finance_profile_page(finance_repository) -> None:
         }
         selected_label = st.selectbox("수정할 프로필 선택", list(options.keys()))
         selected = options[selected_label]
+        _render_finance_summary_cards(_finance_summary_from_profile(selected))
 
         payload = _render_profile_form(
             form_key="update_finance_profile_form",
@@ -144,6 +145,7 @@ def _render_profile_form(
             help="예: 4%는 0.04로 입력합니다. 입력하지 않으면 월상환액과 DSR 계산을 생략합니다.",
             key=f"{form_key}_interest_rate",
         )
+        st.caption("연소득과 금리는 분석 시 월 상환액 및 대출 한도(DSR) 계산에 사용됩니다.")
 
         st.markdown("### 부채")
         debt_col1, debt_col2 = st.columns(2)
@@ -198,6 +200,16 @@ def _render_profile_form(
             "기존 대출 총액",
             format_compact_won(from_eok(existing_debt_eok)),
             help="보유 부동산 대출 잔액 + 신용대출 잔액 + 기타 대출 잔액의 자동 합산값입니다.",
+        )
+        _render_finance_summary_cards(
+            _build_finance_summary(
+                cash_amount_won=int(from_eok(cash_amount_eok)),
+                owned_real_estate_value_won=int(from_eok(owned_real_estate_value_eok)),
+                owned_real_estate_debt_won=int(from_eok(owned_real_estate_debt_eok)),
+                credit_loan_balance_won=int(from_eok(credit_loan_balance_eok)),
+                other_loan_balance_won=int(from_eok(other_loan_balance_eok)),
+                home_count=int(home_count),
+            )
         )
 
         st.markdown("### 대출 설정")
@@ -306,6 +318,47 @@ def _calculate_existing_debt_won(profile: dict | pd.Series) -> int:
     return int(profile.get("owned_real_estate_debt") or 0) + int(
         profile.get("credit_loan_balance") or 0
     ) + int(profile.get("other_loan_balance") or 0)
+
+
+def _build_finance_summary(
+    *,
+    cash_amount_won: int,
+    owned_real_estate_value_won: int,
+    owned_real_estate_debt_won: int,
+    credit_loan_balance_won: int,
+    other_loan_balance_won: int,
+    home_count: int,
+) -> dict[str, int]:
+    total_assets = cash_amount_won + owned_real_estate_value_won
+    total_debt = (
+        owned_real_estate_debt_won + credit_loan_balance_won + other_loan_balance_won
+    )
+    return {
+        "total_assets": total_assets,
+        "total_debt": total_debt,
+        "net_worth": total_assets - total_debt,
+        "home_count": home_count,
+    }
+
+
+def _finance_summary_from_profile(profile: dict | pd.Series) -> dict[str, int]:
+    return _build_finance_summary(
+        cash_amount_won=int(profile.get("cash_amount") or 0),
+        owned_real_estate_value_won=int(profile.get("owned_real_estate_value") or 0),
+        owned_real_estate_debt_won=int(profile.get("owned_real_estate_debt") or 0),
+        credit_loan_balance_won=int(profile.get("credit_loan_balance") or 0),
+        other_loan_balance_won=int(profile.get("other_loan_balance") or 0),
+        home_count=int(profile.get("home_count") or 0),
+    )
+
+
+def _render_finance_summary_cards(summary: dict[str, int]) -> None:
+    st.markdown("### 자금 요약")
+    cols = st.columns(4)
+    cols[0].metric("총자산", format_compact_won(int(summary["total_assets"])))
+    cols[1].metric("총부채", format_compact_won(int(summary["total_debt"])))
+    cols[2].metric("순자산", format_compact_won(int(summary["net_worth"])))
+    cols[3].metric("보유주택", f"{int(summary['home_count'])}채")
 
 
 def _to_optional_won(value_eok: float) -> int | None:

@@ -22,41 +22,42 @@ DRAFT_KEY = "policy_import_draft_sections"
 
 def render_admin_page(*, rule_admin_service, policy_import_service, complex_repository=None) -> None:
     st.title("관리자")
-    st.caption("규칙 조회, 지역 규제 상태 관리, 정책 문서 후보 생성과 검토를 처리합니다.")
+    st.caption("정책 운영, 규칙 관리, 정책 수집/승인 업무를 처리합니다.")
 
-    (
-        policy_event_tab,
-        loan_tab,
-        tax_tab,
-        brokerage_tab,
-        region_tab,
-        import_tab,
-    ) = st.tabs(
-        ["정책 이벤트", "대출 규칙", "세금 규칙", "중개보수 규칙", "지역 규제 상태", "정책 가져오기"]
+    policy_ops_tab, rules_tab, import_tab = st.tabs(
+        ["정책 운영", "규칙 관리", "정책 수집/승인"]
     )
 
-    with policy_event_tab:
-        render_policy_event_admin_page(
-            rule_admin_service=rule_admin_service,
-            policy_import_service=policy_import_service,
-        )
-    with loan_tab:
-        _render_loan_rule_tab(rule_admin_service=rule_admin_service)
-    with tax_tab:
-        _render_rule_table("세금 규칙", rule_admin_service.list_tax_rules(), "tax")
-    with brokerage_tab:
-        _render_rule_table("중개보수 규칙", rule_admin_service.list_brokerage_rules(), "brokerage")
-    with region_tab:
-        _render_region_policy_tab(
-            rule_admin_service=rule_admin_service,
-            complex_repository=complex_repository,
-        )
+    with policy_ops_tab:
+        policy_event_tab, region_tab = st.tabs(["정책 이벤트", "지역 규제 상태"])
+        with policy_event_tab:
+            render_policy_event_admin_page(
+                rule_admin_service=rule_admin_service,
+                policy_import_service=policy_import_service,
+            )
+        with region_tab:
+            _render_region_policy_tab(
+                rule_admin_service=rule_admin_service,
+                complex_repository=complex_repository,
+            )
+
+    with rules_tab:
+        loan_tab, tax_tab, brokerage_tab = st.tabs(["대출 규칙", "세금 규칙", "중개보수 규칙"])
+        with loan_tab:
+            _render_loan_rule_tab(rule_admin_service=rule_admin_service)
+        with tax_tab:
+            _render_rule_table("세금 규칙", rule_admin_service.list_tax_rules(), "tax")
+        with brokerage_tab:
+            _render_rule_table("중개보수 규칙", rule_admin_service.list_brokerage_rules(), "brokerage")
+
     with import_tab:
         _render_policy_import_tab(policy_import_service=policy_import_service)
 
 
 def _render_rule_table(title: str, rows: list[dict[str, str]], kind: str) -> None:
     st.subheader(title)
+    if kind in {"tax", "brokerage"}:
+        st.info("현재 조회 전용 화면입니다.")
     if not rows:
         st.info("표시할 규칙이 없습니다.")
         return
@@ -1378,29 +1379,31 @@ def _render_region_policy_tab(*, rule_admin_service, complex_repository=None) ->
 
 
 def _render_policy_import_tab(*, policy_import_service) -> None:
-    st.subheader("정책 문서 가져오기")
-    st.caption("문단 분석 -> 지역 그룹 확장 확인 -> 후보 생성 -> 승인 -> 최종 적용 순서로 진행합니다.")
+    st.subheader("정책 수집/승인")
+    st.caption("정책 원문 입력 -> AI 분석 결과 검토 -> 승인 / 반려 -> 적용 순서로 진행합니다.")
 
     with st.form("policy_import_analysis_form"):
-        source_name = st.text_input("정책 문서 이름", value="관리자 입력 정책")
-        selector_cols = st.columns(3)
-        target_rule_type = selector_cols[0].selectbox(
-            "대상 규칙 유형",
-            policy_import_service.list_import_target_rule_types(),
-            format_func=_target_rule_type_label,
-        )
-        parser_name = selector_cols[1].selectbox(
-            "파서",
-            policy_import_service.list_parser_names(),
-            index=0,
-        )
-        effective_date = selector_cols[2].date_input("시행일")
+        header_cols = st.columns(2)
+        source_name = header_cols[0].text_input("정책명", value="관리자 입력 정책")
+        effective_date = header_cols[1].date_input("시행일")
         source_text = st.text_area(
-            "정책 원문",
+            "정책 원문 입력",
             height=220,
             placeholder="예: 현재 규제지역은 서울 전역과 경기 주요 12개 지역입니다.",
         )
-        submitted = st.form_submit_button("문단 분석")
+        with st.expander("고급 설정", expanded=False):
+            selector_cols = st.columns(2)
+            target_rule_type = selector_cols[0].selectbox(
+                "분석 대상 유형",
+                policy_import_service.list_import_target_rule_types(),
+                format_func=_target_rule_type_label,
+            )
+            parser_name = selector_cols[1].selectbox(
+                "분석기",
+                policy_import_service.list_parser_names(),
+                index=0,
+            )
+        submitted = st.form_submit_button("AI 분석 실행")
 
     if submitted:
         try:
@@ -1417,7 +1420,7 @@ def _render_policy_import_tab(*, policy_import_service) -> None:
                 "source_text": source_text,
                 "sections": sections,
             }
-            st.success(f"문단 {len(sections)}건을 분석했습니다.")
+            st.success(f"AI 분석으로 문단 {len(sections)}건을 분류했습니다.")
         except Exception as exc:
             st.error(str(exc))
 
@@ -1430,7 +1433,7 @@ def _render_policy_import_tab(*, policy_import_service) -> None:
 
 
 def _render_section_review(*, draft: dict, policy_import_service) -> None:
-    st.subheader("문단 분류 결과")
+    st.subheader("AI 분석 결과 검토")
     grouped_sections = _group_items_by_target_rule_type(draft["sections"])
     section_type_options = [
         "POLICY_EVENT",
@@ -1602,7 +1605,7 @@ def _collect_section_metadata(section: dict) -> dict:
 
 
 def _render_policy_import_review(*, policy_import_service) -> None:
-    st.subheader("가져온 정책 검토")
+    st.subheader("후보 검토 및 승인")
     imports = policy_import_service.list_policy_imports()
     if not imports:
         st.info("아직 가져온 정책 문서가 없습니다.")
@@ -1630,12 +1633,11 @@ def _render_policy_import_review(*, policy_import_service) -> None:
     for item in candidates:
         summary_rows.append(
             {
-                "후보 ID": item["id"],
-                "규칙 유형": _target_rule_type_label(item["target_rule_type"]),
+                "정책명": item["rule_name"],
+                "유형": _target_rule_type_label(item["target_rule_type"]),
                 "상태": _candidate_status_label(item["status"]),
+                "적용 대상": _candidate_target_summary(item),
                 "변경 요약": item.get("change_summary") or "-",
-                "규칙 버전": item.get("rule_version") or "-",
-                "신뢰도": _format_confidence(item.get("confidence")),
                 "경고": " / ".join(item["warnings_list"]) or "-",
             }
         )
@@ -1648,7 +1650,7 @@ def _render_policy_import_review(*, policy_import_service) -> None:
         st.subheader(_group_section_title(target_rule_type))
         for candidate in rows:
             with st.expander(
-                f"후보 #{candidate['id']} | {_candidate_status_label(candidate['status'])} | {candidate['rule_name']}",
+                f"{_target_rule_type_label(candidate['target_rule_type'])} | {_candidate_status_label(candidate['status'])} | {candidate['rule_name']}",
                 expanded=False,
             ):
                 _render_candidate_detail(
@@ -1664,66 +1666,27 @@ def _render_policy_import_review(*, policy_import_service) -> None:
 
 
 def _render_candidate_detail(*, candidate: dict, policy_import_service) -> None:
-    cols = st.columns(5)
-    cols[0].metric("후보 ID", str(candidate["id"]))
-    cols[1].metric("규칙 유형", _target_rule_type_label(candidate["target_rule_type"]))
-    cols[2].metric("상태", _candidate_status_label(candidate["status"]))
-    cols[3].metric("신뢰도", _format_confidence(candidate.get("confidence")))
-    cols[4].metric("변경 필드 수", str(len(candidate["changed_fields_list"])))
+    st.markdown(f"**정책명:** {candidate['rule_name']}")
+    summary_cols = st.columns(3)
+    summary_cols[0].metric("영향도", _candidate_impact_label(candidate))
+    summary_cols[1].metric("적용 대상", _candidate_target_summary(candidate))
+    summary_cols[2].metric("상태", _candidate_status_label(candidate["status"]))
 
-    if candidate.get("changed_field_details"):
-        st.write("변경 내용")
-        st.dataframe(
-            pd.DataFrame(candidate["changed_field_details"]).rename(
-                columns={
-                    "label": "항목",
-                    "previous_value": "이전 값",
-                    "proposed_value": "제안 값",
-                }
-            )[["항목", "이전 값", "제안 값"]],
-            use_container_width=True,
-            hide_index=True,
-        )
-    elif candidate["target_rule_type"] in {"LOAN", "TAX", "BROKERAGE"}:
-        st.info("실제 정책 변경 필드가 없습니다. 이 후보는 적용 대상이 아닙니다.")
+    st.write("변경 요약")
+    st.write(candidate.get("change_summary") or "-")
 
-    compare_cols = st.columns(2)
-    with compare_cols[0]:
-        st.write("이전 값")
-        if candidate["previous_rule"] is None:
-            st.caption("이전 값 없음")
-        else:
-            st.json(candidate["previous_rule"], expanded=False)
-    with compare_cols[1]:
-        st.write("제안 값")
-        st.json(candidate["proposed_rule"], expanded=False)
-
+    st.write("경고")
     if candidate["warnings_list"]:
-        st.write("경고")
         for warning in candidate["warnings_list"]:
             if warning.startswith("ERROR:"):
                 st.error(warning)
             else:
                 st.warning(warning)
+    else:
+        st.caption("경고 없음")
 
-    edited_json = st.text_area(
-        "제안 규칙 JSON 수정",
-        value=json.dumps(candidate["proposed_rule"], ensure_ascii=False, indent=2, sort_keys=True),
-        height=260,
-        key=f"candidate_json_editor_{candidate['id']}",
-    )
     action_cols = st.columns(4)
-    if action_cols[0].button("JSON 저장", key=f"save_candidate_{candidate['id']}"):
-        try:
-            policy_import_service.update_candidate_proposed_rule(
-                candidate_id=int(candidate["id"]),
-                proposed_rule_json_text=edited_json,
-            )
-            st.success("후보 JSON을 저장했습니다.")
-            st.rerun()
-        except Exception as exc:
-            st.error(str(exc))
-    if action_cols[1].button("승인", key=f"approve_candidate_{candidate['id']}"):
+    if action_cols[0].button("승인", key=f"approve_candidate_{candidate['id']}"):
         try:
             policy_import_service.set_candidate_status(
                 candidate_id=int(candidate["id"]),
@@ -1733,7 +1696,7 @@ def _render_candidate_detail(*, candidate: dict, policy_import_service) -> None:
             st.rerun()
         except Exception as exc:
             st.error(str(exc))
-    if action_cols[2].button("반려", key=f"reject_candidate_{candidate['id']}"):
+    if action_cols[1].button("반려", key=f"reject_candidate_{candidate['id']}"):
         try:
             policy_import_service.set_candidate_status(
                 candidate_id=int(candidate["id"]),
@@ -1743,7 +1706,7 @@ def _render_candidate_detail(*, candidate: dict, policy_import_service) -> None:
             st.rerun()
         except Exception as exc:
             st.error(str(exc))
-    if action_cols[3].button("재검토", key=f"pending_candidate_{candidate['id']}"):
+    if action_cols[2].button("재검토", key=f"pending_candidate_{candidate['id']}"):
         try:
             policy_import_service.set_candidate_status(
                 candidate_id=int(candidate["id"]),
@@ -1753,10 +1716,70 @@ def _render_candidate_detail(*, candidate: dict, policy_import_service) -> None:
             st.rerun()
         except Exception as exc:
             st.error(str(exc))
+    action_cols[3].caption("승인 후 아래 최종 적용에서 활성화합니다.")
+
+    with st.expander("고급 정보", expanded=False):
+        meta_cols = st.columns(4)
+        meta_cols[0].metric("후보 ID", str(candidate["id"]))
+        meta_cols[1].metric("규칙 유형", _target_rule_type_label(candidate["target_rule_type"]))
+        meta_cols[2].metric("신뢰도", _format_confidence(candidate.get("confidence")))
+        meta_cols[3].metric("변경 필드 수", str(len(candidate["changed_fields_list"])))
+
+        if candidate.get("changed_field_details"):
+            st.write("변경 내용")
+            st.dataframe(
+                pd.DataFrame(candidate["changed_field_details"]).rename(
+                    columns={
+                        "label": "항목",
+                        "previous_value": "이전 값",
+                        "proposed_value": "제안 값",
+                    }
+                )[["항목", "이전 값", "제안 값"]],
+                use_container_width=True,
+                hide_index=True,
+            )
+        elif candidate["target_rule_type"] in {"LOAN", "TAX", "BROKERAGE"}:
+            st.info("실제 정책 변경 필드가 없습니다. 이 후보는 적용 대상이 아닙니다.")
+
+        st.write("changed_fields")
+        st.write(", ".join(candidate.get("changed_fields_list") or []) or "-")
+
+        compare_cols = st.columns(2)
+        with compare_cols[0]:
+            st.write("previous_json")
+            if candidate["previous_rule"] is None:
+                st.caption("이전 값 없음")
+            else:
+                st.json(candidate["previous_rule"], expanded=False)
+        with compare_cols[1]:
+            st.write("proposed_json")
+            st.json(candidate["proposed_rule"], expanded=False)
+
+        raw_metadata = candidate.get("metadata") or candidate.get("proposed_rule", {}).get("metadata")
+        if raw_metadata:
+            st.write("raw metadata")
+            st.json(raw_metadata, expanded=False)
+
+        edited_json = st.text_area(
+            "제안 규칙 JSON 수정",
+            value=json.dumps(candidate["proposed_rule"], ensure_ascii=False, indent=2, sort_keys=True),
+            height=260,
+            key=f"candidate_json_editor_{candidate['id']}",
+        )
+        if st.button("JSON 저장", key=f"save_candidate_{candidate['id']}"):
+            try:
+                policy_import_service.update_candidate_proposed_rule(
+                    candidate_id=int(candidate["id"]),
+                    proposed_rule_json_text=edited_json,
+                )
+                st.success("후보 JSON을 저장했습니다.")
+                st.rerun()
+            except Exception as exc:
+                st.error(str(exc))
 
     if candidate["target_rule_type"] == "LOAN":
-        st.divider()
-        _render_loan_preview(candidate=candidate, policy_import_service=policy_import_service)
+        with st.expander("고급: 대출 규칙 미리보기", expanded=False):
+            _render_loan_preview(candidate=candidate, policy_import_service=policy_import_service)
     elif candidate["target_rule_type"] == "UNKNOWN":
         st.info("미분류 후보는 검토만 가능하고 적용은 할 수 없습니다.")
 
@@ -1948,6 +1971,386 @@ def _target_rule_type_label(value: str) -> str:
     }.get(value, value)
 
 
+def _render_policy_import_review(*, policy_import_service) -> None:
+    st.subheader("후보 검토 및 승인")
+    imports = policy_import_service.list_policy_imports()
+    if not imports:
+        st.info("아직 가져온 정책 문서가 없습니다.")
+        return
+
+    options = {_policy_import_label(item): int(item["id"]) for item in imports}
+    selected_label = st.selectbox("검토할 정책 가져오기", list(options.keys()))
+    detail = policy_import_service.get_policy_import_detail(options[selected_label])
+    policy_import = detail["policy_import"]
+    candidates = detail["candidates"]
+    grouped_candidates = _group_items_by_target_rule_type(candidates)
+
+    _render_policy_import_operator_summary(policy_import=policy_import, candidates=candidates)
+
+    if not candidates:
+        st.info("이 정책 문서에서 기존 활성 규칙과 비교해 실제로 달라지는 항목이 없어 후보가 생성되지 않았습니다.")
+        return
+
+    summary_rows = []
+    for item in candidates:
+        summary_rows.append(
+            {
+                "정책명": item["rule_name"],
+                "적용 대상": _candidate_target_summary(item),
+                "영향도": _candidate_impact_label(item),
+                "주요 변경사항": " / ".join(_candidate_major_change_lines(item)) or "-",
+                "경고": _candidate_warning_summary(item),
+            }
+        )
+    st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+
+    for target_rule_type in GROUP_ORDER:
+        rows = grouped_candidates.get(target_rule_type, [])
+        if not rows:
+            continue
+        st.subheader(_group_section_title(target_rule_type))
+        for candidate in rows:
+            with st.expander(
+                f"{candidate['rule_name']} | {_candidate_target_summary(candidate)} | {_candidate_status_label(candidate['status'])}",
+                expanded=False,
+            ):
+                _render_candidate_detail(
+                    candidate=candidate,
+                    policy_import_service=policy_import_service,
+                )
+
+    st.divider()
+    _render_apply_section(
+        grouped_candidates=grouped_candidates,
+        policy_import_service=policy_import_service,
+    )
+
+
+def _render_candidate_detail(*, candidate: dict, policy_import_service) -> None:
+    st.markdown(f"**정책명** {candidate['rule_name']}")
+    summary_cols = st.columns(2)
+    summary_cols[0].metric("적용 대상", _candidate_target_summary(candidate))
+    summary_cols[1].metric("영향도", _candidate_impact_label(candidate))
+    st.caption(f"현재 상태: {_candidate_status_label(candidate['status'])}")
+
+    st.write("주요 변경사항")
+    change_lines = _candidate_major_change_lines(candidate)
+    if change_lines:
+        for line in change_lines:
+            st.markdown(f"- {line}")
+    else:
+        st.caption("중요 변경사항 없음")
+
+    st.write("경고")
+    warning_lines = _candidate_warning_lines(candidate)
+    if warning_lines:
+        for warning in warning_lines:
+            if warning.startswith("ERROR:"):
+                st.error(warning)
+            else:
+                st.warning(warning)
+    else:
+        st.caption("경고 없음")
+
+    action_cols = st.columns(4)
+    if action_cols[0].button("승인", key=f"approve_candidate_{candidate['id']}"):
+        try:
+            policy_import_service.set_candidate_status(
+                candidate_id=int(candidate["id"]),
+                status=CANDIDATE_STATUS_APPROVED,
+            )
+            st.success("후보를 승인했습니다.")
+            st.rerun()
+        except Exception as exc:
+            st.error(str(exc))
+    if action_cols[1].button("반려", key=f"reject_candidate_{candidate['id']}"):
+        try:
+            policy_import_service.set_candidate_status(
+                candidate_id=int(candidate["id"]),
+                status=CANDIDATE_STATUS_REJECTED,
+            )
+            st.success("후보를 반려했습니다.")
+            st.rerun()
+        except Exception as exc:
+            st.error(str(exc))
+    if action_cols[2].button("재검토", key=f"pending_candidate_{candidate['id']}"):
+        try:
+            policy_import_service.set_candidate_status(
+                candidate_id=int(candidate["id"]),
+                status=CANDIDATE_STATUS_PENDING_REVIEW,
+            )
+            st.success("후보를 재검토 상태로 변경했습니다.")
+            st.rerun()
+        except Exception as exc:
+            st.error(str(exc))
+    action_cols[3].caption("승인 후 아래 최종 적용에서 실제 반영됩니다.")
+
+    with st.expander("고급 정보", expanded=False):
+        meta_cols = st.columns(4)
+        meta_cols[0].metric("후보 ID", str(candidate["id"]))
+        meta_cols[1].metric("규칙 유형", _target_rule_type_label(candidate["target_rule_type"]))
+        meta_cols[2].metric("신뢰도", _format_confidence(candidate.get("confidence")))
+        meta_cols[3].metric("변경 필드 수", str(len(candidate["changed_fields_list"])))
+
+        if candidate.get("changed_field_details"):
+            st.write("변경 내용")
+            st.dataframe(
+                pd.DataFrame(candidate["changed_field_details"]).rename(
+                    columns={
+                        "label": "항목",
+                        "previous_value": "이전 값",
+                        "proposed_value": "제안 값",
+                    }
+                )[["항목", "이전 값", "제안 값"]],
+                use_container_width=True,
+                hide_index=True,
+            )
+        elif candidate["target_rule_type"] in {"LOAN", "TAX", "BROKERAGE"}:
+            st.info("실제 정책 변경 필드가 없습니다. 이 후보는 적용 대상이 아닙니다.")
+
+        st.write("changed_fields")
+        st.write(", ".join(candidate.get("changed_fields_list") or []) or "-")
+
+        compare_cols = st.columns(2)
+        with compare_cols[0]:
+            st.write("previous_json")
+            if candidate["previous_rule"] is None:
+                st.caption("이전 값 없음")
+            else:
+                st.json(candidate["previous_rule"], expanded=False)
+        with compare_cols[1]:
+            st.write("proposed_json")
+            st.json(candidate["proposed_rule"], expanded=False)
+
+        raw_metadata = candidate.get("metadata") or candidate.get("proposed_rule", {}).get("metadata")
+        if raw_metadata:
+            st.write("raw metadata")
+            st.json(raw_metadata, expanded=False)
+
+        edited_json = st.text_area(
+            "제안 규칙 JSON 수정",
+            value=json.dumps(candidate["proposed_rule"], ensure_ascii=False, indent=2, sort_keys=True),
+            height=260,
+            key=f"candidate_json_editor_{candidate['id']}",
+        )
+        if st.button("JSON 저장", key=f"save_candidate_{candidate['id']}"):
+            try:
+                policy_import_service.update_candidate_proposed_rule(
+                    candidate_id=int(candidate["id"]),
+                    proposed_rule_json_text=edited_json,
+                )
+                st.success("후보 JSON을 저장했습니다.")
+                st.rerun()
+            except Exception as exc:
+                st.error(str(exc))
+
+    if candidate["target_rule_type"] == "LOAN":
+        with st.expander("고급: 대출 규칙 미리보기", expanded=False):
+            _render_loan_preview(candidate=candidate, policy_import_service=policy_import_service)
+    elif candidate["target_rule_type"] == "UNKNOWN":
+        st.info("미분류 후보는 검토만 가능하고 적용은 할 수 없습니다.")
+
+
+def _render_policy_import_operator_summary(*, policy_import: dict, candidates: list[dict]) -> None:
+    summary_cols = st.columns(3)
+    summary_cols[0].metric("정책명", str(policy_import.get("source_name") or "-"))
+    summary_cols[1].metric("적용 대상", _policy_import_target_summary(candidates))
+    summary_cols[2].metric("영향도", _policy_import_impact_label(candidates))
+    st.caption(
+        f"시행일 {policy_import.get('effective_date') or '-'} · "
+        f"분석 상태 {_parser_status_label(str(policy_import.get('parser_status') or '-'))}"
+    )
+
+    st.write("주요 변경사항")
+    major_lines = _policy_import_major_change_lines(candidates)
+    if major_lines:
+        for line in major_lines:
+            st.markdown(f"- {line}")
+    else:
+        st.caption("주요 변경사항 없음")
+
+    st.write("경고")
+    warning_lines = _policy_import_warning_lines(candidates)
+    if warning_lines:
+        for warning in warning_lines:
+            st.warning(warning)
+    else:
+        st.caption("경고 없음")
+
+
+def _candidate_major_change_lines(candidate: dict) -> list[str]:
+    details = candidate.get("changed_field_details") or []
+    if not details:
+        summary = str(candidate.get("change_summary") or "").strip()
+        return [summary] if summary else []
+
+    lines: list[str] = []
+    for item in details:
+        line = _humanize_candidate_change(candidate, item)
+        if line and line not in lines:
+            lines.append(line)
+        if len(lines) >= 4:
+            break
+    return lines
+
+
+def _humanize_candidate_change(candidate: dict, item: dict[str, object]) -> str:
+    field = str(item.get("field") or "")
+    label = str(item.get("label") or field or "항목")
+    previous = str(item.get("previous_value") or "-")
+    proposed = str(item.get("proposed_value") or "-")
+    target_rule_type = str(candidate.get("target_rule_type") or "")
+
+    if target_rule_type == "LOAN":
+        if field == "buyer_type":
+            return f"{proposed} 규칙 변경"
+        if field == "purpose":
+            return f"{proposed} 규칙 변경"
+        if field == "region_type":
+            return f"{proposed} 규칙 변경"
+        if field == "ltv_rate":
+            return f"LTV {previous} → {proposed}"
+        if field == "dsr_rate":
+            return f"DSR {previous} → {proposed}"
+        if field == "max_loan_amount":
+            return f"최대 대출 한도 {previous} → {proposed}"
+        if field in {"house_price_min", "house_price_max"}:
+            return "주택 가격 구간 변경"
+    if target_rule_type == "REGION_POLICY":
+        if field == "policy_type":
+            return f"규제 유형 {previous} → {proposed}"
+        if field in {"sido", "sigungu", "dong"}:
+            return "적용 지역 변경"
+    if target_rule_type == "POLICY_EVENT":
+        if field == "impact_level":
+            return f"영향도 {previous} → {proposed}"
+        if field == "title":
+            return "정책 제목 변경"
+        if field == "effective_from":
+            return f"시작일 {previous} → {proposed}"
+        if field == "effective_to":
+            return f"종료일 {previous} → {proposed}"
+    if previous == proposed:
+        return f"{label} 변경"
+    return f"{label} {previous} → {proposed}"
+
+
+def _candidate_warning_lines(candidate: dict) -> list[str]:
+    warnings = [str(item).strip() for item in (candidate.get("warnings_list") or []) if str(item).strip()]
+    unique: list[str] = []
+    for warning in warnings:
+        if warning not in unique:
+            unique.append(warning)
+    return unique
+
+
+def _candidate_warning_summary(candidate: dict) -> str:
+    warning_lines = _candidate_warning_lines(candidate)
+    if not warning_lines:
+        return "-"
+    return " / ".join(warning_lines[:2])
+
+
+def _policy_import_target_summary(candidates: list[dict]) -> str:
+    targets: list[str] = []
+    for candidate in candidates:
+        target = _candidate_target_summary(candidate)
+        if target and target not in targets:
+            targets.append(target)
+    if not targets:
+        return "-"
+    if len(targets) == 1:
+        return targets[0]
+    return f"{targets[0]} 외 {len(targets) - 1}건"
+
+
+def _policy_import_impact_label(candidates: list[dict]) -> str:
+    priority = {"중요": 3, "보통": 2, "낮음": 1, "-": 0}
+    best_label = "-"
+    best_score = -1
+    for candidate in candidates:
+        label = _candidate_impact_label(candidate)
+        score = priority.get(label, 0)
+        if score > best_score:
+            best_score = score
+            best_label = label
+    return best_label
+
+
+def _policy_import_major_change_lines(candidates: list[dict]) -> list[str]:
+    lines: list[str] = []
+    for candidate in candidates:
+        for line in _candidate_major_change_lines(candidate):
+            if line not in lines:
+                lines.append(line)
+            if len(lines) >= 5:
+                return lines
+    return lines
+
+
+def _policy_import_warning_lines(candidates: list[dict]) -> list[str]:
+    lines: list[str] = []
+    for candidate in candidates:
+        for warning in _candidate_warning_lines(candidate):
+            if warning not in lines:
+                lines.append(warning)
+            if len(lines) >= 3:
+                return lines
+    return lines
+
+
+def _parser_status_label(value: str) -> str:
+    return {
+        "PENDING": "대기",
+        "COMPLETED": "완료",
+        "FAILED": "실패",
+    }.get(value, value)
+
+
+def _candidate_impact_label(candidate: dict) -> str:
+    proposed_rule = candidate.get("proposed_rule") or {}
+    impact_level = proposed_rule.get("impact_level")
+    if impact_level:
+        return {
+            "HIGH": "중요",
+            "MEDIUM": "보통",
+            "LOW": "낮음",
+        }.get(str(impact_level), str(impact_level))
+    return "-"
+
+
+def _candidate_target_summary(candidate: dict) -> str:
+    proposed_rule = candidate.get("proposed_rule") or {}
+    target_rule_type = str(candidate.get("target_rule_type") or "")
+    if target_rule_type == "POLICY_EVENT":
+        buyer_type = _buyer_type_label(str(proposed_rule.get("affected_buyer_type") or "ANY"))
+        purpose = _investment_purpose_label(
+            str(proposed_rule.get("affected_investment_purpose") or "ANY")
+        )
+        region_parts = [
+            str(proposed_rule.get("affected_region_sido") or "").strip(),
+            str(proposed_rule.get("affected_region_sigungu") or "").strip(),
+            str(proposed_rule.get("affected_region_dong") or "").strip(),
+        ]
+        region_text = " ".join(part for part in region_parts if part) or "전체 지역"
+        return f"{region_text} / {buyer_type} / {purpose}"
+    if target_rule_type == "REGION_POLICY":
+        region_parts = [
+            str(proposed_rule.get("sido") or "").strip(),
+            str(proposed_rule.get("sigungu") or "").strip(),
+            str(proposed_rule.get("dong") or "").strip(),
+        ]
+        region_text = " ".join(part for part in region_parts if part) or "지역 미지정"
+        policy_type = _region_policy_type_label(str(proposed_rule.get("policy_type") or "-"))
+        return f"{region_text} / {policy_type}"
+    if target_rule_type == "LOAN":
+        purpose = _investment_purpose_label(str(proposed_rule.get("purpose") or "OWNER_OCCUPIED"))
+        region_type = _loan_region_type_label(str(proposed_rule.get("region_type") or "NON_REGULATED"))
+        buyer_type = _buyer_type_label(str(proposed_rule.get("buyer_type") or "ALL"))
+        return f"{purpose} / {region_type} / {buyer_type}"
+    return candidate.get("change_summary") or "-"
+
+
 def _region_policy_type_label(value: str) -> str:
     return {
         "REGULATED_AREA": "규제지역(기존 상위개념)",
@@ -1982,6 +2385,7 @@ def _loan_region_type_label(value: str) -> str:
 def _buyer_type_label(value: str) -> str:
     return {
         "ALL": "전체",
+        "ANY": "전체",
         "NO_HOME": "무주택",
         "ONE_HOME": "1주택",
         "MULTI_HOME": "다주택",
@@ -1990,6 +2394,7 @@ def _buyer_type_label(value: str) -> str:
 
 def _investment_purpose_label(value: str) -> str:
     return {
+        "ANY": "전체",
         "OWNER_OCCUPIED": "실거주",
         "INVESTMENT": "투자",
     }.get(value, value)
