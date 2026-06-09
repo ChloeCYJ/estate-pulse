@@ -13,10 +13,11 @@ The current build includes:
 - Owner-occupied and investment analysis
 - Required cash, shortage cash, jeonse ratio, bargain score, liquidity score, complex grade, and investment score analysis
 - Transaction-based sale/rent market context
+- Analysis explainability with score factors, bargain context, applied-rule traces, and scenario comparison
 - Loan rule engine, tax rule, brokerage/cost rule, and regional regulation support
-- Watchlist, comparison, ranking, and analysis history
+- Investor-facing dashboard, watchlist, comparison, ranking, and analysis history
 - Policy import workflow with rule candidates and policy event candidates
-- Admin pages for policy events, rule management, regional regulation, and policy document review
+- Admin pages grouped around policy operations, rule management, and policy review/approval
 - Loan rule admin support for current-rule query, Wizard-style multi-row registration, inline row editing, batch update, and batch deactivate
 
 External API integration is intentionally not implemented yet. Public collector modules exist as stubs only, and no private platform scraping is included.
@@ -80,11 +81,11 @@ The app creates `data/app.db` automatically on first run.
 
 1. Register one or more apartment complexes.
 2. Add manual listings linked to a complex.
-3. Create a finance profile with cash, debt, owned real-estate, and optional manual LTV override settings.
+3. Create a finance profile with cash, debt, owned real-estate, annual income, annual interest rate, and optional manual LTV override settings.
 4. Open the analysis page.
 5. Select a listing and finance profile.
 6. Choose owner-occupied or investment analysis and the funding scenario.
-7. Optionally adjust market inputs, repair cost, expected loan amount, or one-time LTV override.
+7. Optionally adjust market inputs, repair cost, expected loan amount, one-time LTV override, or scenario inputs for price/jeonse/rate changes.
 8. Run and optionally save the analysis result.
 9. Use watchlist, comparison, and ranking pages to compare candidates.
 
@@ -105,7 +106,7 @@ Admin menu:
 
 - `관리자`
 
-Admin tabs:
+Admin groups:
 
 - `정책 이벤트`
 - `대출 규칙`
@@ -115,6 +116,20 @@ Admin tabs:
 - `정책 가져오기`
 
 Policy Event is currently treated as an admin CRUD/review feature, not as a standalone user-facing lookup page.
+
+Current user-facing labels in the Streamlit UI are:
+
+- `Dashboard`
+- `단지`
+- `매물`
+- `자금`
+- `분석`
+- `투자 후보`
+- `매물 비교`
+- `투자 랭킹`
+- `관리자`
+
+The current admin page groups work into `정책 운영`, `규칙 관리`, and `정책 수집/승인`.
 
 ## Current MVP Scope
 
@@ -127,13 +142,16 @@ Analysis:
 - Investment analysis
 - Transaction-based sale/rent market analysis
 - Loan rule engine
+- Analysis explainability for investment score, bargain score, jeonse ratio, and complex grade
+- Scenario Analyzer for single baseline-vs-changed comparison inside the analysis page
 - Analysis history saving
 
 Comparison and ranking:
 
-- Watchlist
+- Investment-candidate watchlist
 - Comparison
 - Ranking
+- Ranking Top 3 summary cards with reason snippets
 - Bargain score
 - Liquidity score
 - Complex grade
@@ -162,6 +180,9 @@ Finance profile:
 - Owned real-estate debt balance
 - Credit loan balance
 - Other loan balance
+- Annual income
+- Annual interest rate input
+- Net worth summary cards in the finance profile UI
 - Default LTV calculation through policy/loan rule engine
 - Optional manual LTV override for policy data errors or special bank conditions
 
@@ -182,11 +203,16 @@ Run the basic analyzer test suite:
 
 - Calculation defaults such as acquisition tax, brokerage fee, legal fee, and contingency rate are configurable through `.env`.
 - The current analysis page can use transaction-derived market context and optional manual benchmark overrides.
+- Finance profile annual interest rate is entered as a percent value in the UI. For example, `4.0` means `4%`, and the app stores it as a ratio for calculation.
+- The finance profile UI warns when a rate input looks ambiguous because incorrect rate units can significantly distort DSR, expected loan amount, and monthly repayment.
 - The repository and service layers are separated so FastAPI and PostgreSQL can be added later without rewriting the UI logic.
 - SQLite schema migrations are handled by additive `ALTER TABLE` checks during initialization. Existing SQLite DB files are not edited directly by development tasks.
 - SQLite does not enforce enum/check constraints for policy types at the DB level. The current MVP relies on Service validation.
 - `REGULATED_AREA` is retained only for legacy compatibility. It is not shown as a new regional regulation selection; existing rows are not automatically converted.
 - Regional regulation currently uses practical multiple rows for multiple regulations on one region, not a normalized N:M master structure.
+- Scenario Analyzer currently supports only immediate single-scenario comparison in the analysis page. It does not save multiple scenarios, render charts, or simulate policy-rule changes.
+- Dashboard and ranking summaries are based on saved recent analysis results, not on a separate portfolio or recommendation engine.
+- Tax and brokerage admin screens remain limited compared with loan-rule management and may still be read-only in parts of the current admin UI.
 - Future PostgreSQL migration should consider CHECK constraints, regulation type master tables, and N:M structures for policy notices that apply multiple regulations to multiple regions.
 
 ## Roadmap Summary

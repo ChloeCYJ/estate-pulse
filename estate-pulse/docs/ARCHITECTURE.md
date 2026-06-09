@@ -256,6 +256,7 @@ The module boundaries are kept so a future FastAPI + PostgreSQL migration can re
 
 - Basic analysis: `apartment_complex`, `manual_listing`, `user_finance_profile`, `analysis_result`, `sale_transaction`, and `rent_transaction`.
 - Comparison/ranking: `watchlist`, `OpportunityService`, bargain score, liquidity score, complex grade, and overall investment score.
+- Investor-facing summary UI: Dashboard, watchlist, comparison, ranking, and analysis explainability all reuse saved analysis results and existing calculator outputs rather than a separate recommendation engine.
 - Policy/rule administration: policy imports, rule candidates, loan rules, tax rules, brokerage/cost rules, regional regulation rows, and review/approval/application workflows.
 - Policy Event: useful policy information that is not necessarily applied to calculation rules. It is currently an admin CRUD/review feature, not a standalone user lookup page.
 - Regional regulation: active region status rows in `region_policy_status`.
@@ -278,12 +279,22 @@ Finance Profile currently stores:
 
 Default analysis uses loan rule and regional regulation based automatic LTV. Manual LTV is only applied when explicitly enabled on the finance profile or entered as a one-time analysis override. Manual LTV is validated in the 0 to 1 range at the UI/input layer.
 
+The finance profile UI now treats annual interest rate as a percent input for humans. For example, `4.0` means `4%`, and the UI converts it to the internal ratio value used by analyzers and services. Ambiguous small decimal inputs are warned or blocked because rate-unit mistakes materially change DSR, expected loan amount, and monthly repayment outputs.
+
 Funding scenarios:
 
 - Cash-only purchase: uses cash amount as available cash.
 - Sell-owned-real-estate-before-purchase: uses cash + owned real-estate market value - owned real-estate debt balance.
 
 Sell-side taxes, brokerage, early repayment fees, and sale price discounts are not yet modeled.
+
+### Analysis Explainability And Scenario UX
+
+- The analysis page keeps the existing calculation pipeline and adds explanation blocks on top of the existing result dict.
+- Explainability reuses `investment_score`, `bargain_score`, `liquidity_score`, `complex_grade`, `required_cash_efficiency_score`, `shortage_cash`, and `jeonse_ratio` values that already exist in analysis results.
+- The `Scenario Analyzer` is implemented inside the analysis UI and reuses `AnalysisService` with temporary override inputs for sale price, jeonse price, interest rate, and one-time LTV.
+- Scenario results are shown as baseline vs changed comparisons for expected loan amount, total required cash, shortage cash, monthly burden, and investment score.
+- Scenario-specific interpretation remains presentation-layer logic. No separate scenario persistence model or DB schema was added.
 
 ### Policy And Regulation Structure
 
@@ -303,6 +314,20 @@ Sell-side taxes, brokerage, early repayment fees, and sale price discounts are n
 - The admin `Loan Rule Wizard` collects shared policy fields once and expands a price-band matrix into multiple row candidates with preview before save.
 - Batch update and batch deactivate continue to operate on applied/admin override candidate rows. Deactivate is implemented by setting `effective_to`; no `is_active` schema field was introduced.
 - The admin page now separates a filtered "current applicable loan rule" query view from the full grouped rule dump, which remains available for inspection.
+
+### Admin UX Notes
+
+- The admin page groups work into `정책 운영`, `규칙 관리`, and `정책 수집/승인` to reduce operator context switching.
+- Policy collection/review keeps the existing candidate workflow, but the default UI now emphasizes policy name, impact, target, change summary, warnings, approval, and rejection before developer-facing metadata.
+- Candidate metadata such as IDs, confidence, changed JSON, and raw fields is still available under an advanced expander instead of the primary review surface.
+- Tax rule and brokerage rule screens remain more limited than loan-rule management and can still operate as read-only views in the current MVP.
+
+### User-Facing Summary Screens
+
+- Dashboard is now arranged as an investor decision summary page: best candidate first, funding status first, concise reasons/cautions, recent analyses in a collapsed section, and policy-event context below.
+- Ranking adds Top 3 summary cards with short reason lists while keeping the detailed ranking table and unavailable-analysis rows.
+- Comparison keeps the existing comparison flow but promotes core decision columns such as total required cash, additional required cash, liquidity, bargain score, and investment score.
+- Watchlist is presented as an investment-candidate management screen with simplified user-facing labels and a related policy-event section.
 
 ### Menu Structure
 
@@ -336,6 +361,8 @@ Admin tabs:
 
 - Additive schema compatibility is handled through initialization-time `ALTER TABLE` checks.
 - Existing SQLite DB files should not be modified directly during development tasks.
+- Scenario Analyzer currently supports only one immediate baseline-vs-changed comparison in the analysis page. It does not save multiple scenarios, render charts, or simulate policy imports/rule changes.
+- Dashboard and ranking summaries are derived from saved recent analysis results, not from a separate portfolio model.
 - PostgreSQL migration should consider CHECK constraints for enum-like fields.
 - PostgreSQL migration should consider master tables for regulation types and policy notices.
 - N:M structures should be considered when a single policy notice needs to connect many regions and many regulation types.

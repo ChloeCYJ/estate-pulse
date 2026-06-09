@@ -4,6 +4,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from modules.analyzers.owner_occupied_analyzer import calculate_monthly_repayment
 from config.settings import AppSettings
 from modules.services.analysis_service import (
     CASH_ONLY,
@@ -21,6 +22,13 @@ FUNDING_MODE_LABELS = {
     CASH_ONLY: "보유 현금만 사용",
     SELL_OWNED_REAL_ESTATE: "보유 부동산 처분 후 매수",
 }
+LAST_ANALYSIS_RESULT_KEY = "analysis_last_result"
+LAST_ANALYSIS_LISTING_ID_KEY = "analysis_last_listing_id"
+LAST_ANALYSIS_PROFILE_ID_KEY = "analysis_last_profile_id"
+LAST_ANALYSIS_BENCHMARKS_KEY = "analysis_last_benchmarks"
+LAST_SCENARIO_RESULT_KEY = "analysis_last_scenario_result"
+LAST_SCENARIO_LISTING_ID_KEY = "analysis_last_scenario_listing_id"
+LAST_SCENARIO_PROFILE_ID_KEY = "analysis_last_scenario_profile_id"
 
 
 def render_analysis_page(
@@ -192,29 +200,51 @@ def render_analysis_page(
 
     if submitted:
         try:
+            current_benchmarks = BenchmarkInputs(
+                repair_cost=int(from_eok(repair_cost_eok)),
+                expected_loan_amount=_to_optional_won(expected_loan_amount_eok),
+                ltv_rate_override=_to_optional_float(ltv_rate_override),
+                funding_mode=funding_mode,
+                recent_avg_price_override=_to_optional_won(recent_avg_price_override_eok),
+                one_year_high_price_override=_to_optional_won(one_year_high_price_override_eok),
+                expected_jeonse_price_override=_to_optional_won(expected_jeonse_price_override_eok),
+                analysis_mode=selected_mode,
+                acquisition_tax_override=_to_optional_won(acquisition_tax_override_eok),
+                local_education_tax_override=_to_optional_won(local_education_tax_override_eok),
+                brokerage_fee_override=_to_optional_won(brokerage_fee_override_eok),
+                legal_fee_override=_to_optional_won(legal_fee_override_eok),
+                reserve_cost_override=_to_optional_won(reserve_cost_override_eok),
+            )
             result = analysis_service.run_analysis(
                 listing_id=selected_listing["id"],
                 finance_profile_id=selected_profile["id"],
-                benchmarks=BenchmarkInputs(
-                    repair_cost=int(from_eok(repair_cost_eok)),
-                    expected_loan_amount=_to_optional_won(expected_loan_amount_eok),
-                    ltv_rate_override=_to_optional_float(ltv_rate_override),
-                    funding_mode=funding_mode,
-                    recent_avg_price_override=_to_optional_won(recent_avg_price_override_eok),
-                    one_year_high_price_override=_to_optional_won(one_year_high_price_override_eok),
-                    expected_jeonse_price_override=_to_optional_won(expected_jeonse_price_override_eok),
-                    analysis_mode=selected_mode,
-                    acquisition_tax_override=_to_optional_won(acquisition_tax_override_eok),
-                    local_education_tax_override=_to_optional_won(local_education_tax_override_eok),
-                    brokerage_fee_override=_to_optional_won(brokerage_fee_override_eok),
-                    legal_fee_override=_to_optional_won(legal_fee_override_eok),
-                    reserve_cost_override=_to_optional_won(reserve_cost_override_eok),
-                ),
+                benchmarks=current_benchmarks,
                 save_result=save_result,
             )
-            _render_analysis_metrics(result)
+            st.session_state[LAST_ANALYSIS_RESULT_KEY] = result
+            st.session_state[LAST_ANALYSIS_LISTING_ID_KEY] = selected_listing["id"]
+            st.session_state[LAST_ANALYSIS_PROFILE_ID_KEY] = selected_profile["id"]
+            st.session_state[LAST_ANALYSIS_BENCHMARKS_KEY] = current_benchmarks
+            st.session_state.pop(LAST_SCENARIO_RESULT_KEY, None)
+            st.session_state.pop(LAST_SCENARIO_LISTING_ID_KEY, None)
+            st.session_state.pop(LAST_SCENARIO_PROFILE_ID_KEY, None)
         except ValueError as exc:
             st.error(str(exc))
+
+    current_result = _current_analysis_result(
+        selected_listing_id=selected_listing["id"],
+        selected_profile_id=selected_profile["id"],
+    )
+    current_benchmarks = st.session_state.get(LAST_ANALYSIS_BENCHMARKS_KEY)
+    if current_result and current_benchmarks is not None:
+        _render_analysis_metrics(current_result)
+        _render_scenario_analyzer(
+            analysis_service=analysis_service,
+            listing_id=selected_listing["id"],
+            finance_profile_id=selected_profile["id"],
+            baseline_result=current_result,
+            baseline_benchmarks=current_benchmarks,
+        )
 
     _render_recent_analysis_history(analysis_repository.list_recent())
 
@@ -222,6 +252,9 @@ def render_analysis_page(
 def _render_analysis_metrics(result: dict) -> None:
     st.subheader(f"{result['complex_name']} 분석 결과")
     st.info(result["scenario_explanation"])
+    interest_rate_warning = _high_interest_rate_warning(result)
+    if interest_rate_warning:
+        st.warning(interest_rate_warning)
 
     _render_decision_highlight(result)
 
@@ -298,6 +331,552 @@ def _render_analysis_metrics(result: dict) -> None:
         st.write("리스크 체크")
         for risk in result["risks"]:
             st.write(f"- {risk}")
+
+
+def _current_analysis_result(*, selected_listing_id: int, selected_profile_id: int) -> dict | None:
+    if st.session_state.get(LAST_ANALYSIS_LISTING_ID_KEY) != selected_listing_id:
+        return None
+    if st.session_state.get(LAST_ANALYSIS_PROFILE_ID_KEY) != selected_profile_id:
+        return None
+    return st.session_state.get(LAST_ANALYSIS_RESULT_KEY)
+
+
+def _render_scenario_analyzer(
+    *,
+    analysis_service: AnalysisService,
+    listing_id: int,
+    finance_profile_id: int,
+    baseline_result: dict,
+    baseline_benchmarks: BenchmarkInputs,
+) -> None:
+    st.subheader("시나리오 분석")
+    st.caption(
+        "현재 분석 결과를 기준으로 가격, 전세가, 금리, LTV 변화 시 자금 부담과 투자점수 변화를 비교합니다."
+    )
+
+    with st.form("scenario_analyzer_form"):
+        cols = st.columns(4)
+        sale_price_change_pct = cols[0].slider("매매가 변화율 (%)", min_value=-10, max_value=10, value=0)
+        jeonse_price_change_pct = cols[1].slider("전세가 변화율 (%)", min_value=-10, max_value=10, value=0)
+        interest_rate_change_pct = cols[2].slider(
+            "금리 변화율 (%p)",
+            min_value=-2.0,
+            max_value=2.0,
+            value=0.0,
+            step=0.1,
+        )
+        ltv_change_pct = cols[3].slider("LTV 변화율 (%p)", min_value=-20, max_value=20, value=0)
+        scenario_submitted = st.form_submit_button("시나리오 계산")
+
+    if scenario_submitted:
+        scenario_benchmarks = _build_scenario_benchmarks(
+            baseline_benchmarks=baseline_benchmarks,
+            baseline_result=baseline_result,
+            sale_price_change_pct=sale_price_change_pct,
+            jeonse_price_change_pct=jeonse_price_change_pct,
+            interest_rate_change_pct=interest_rate_change_pct,
+            ltv_change_pct=ltv_change_pct,
+        )
+        try:
+            scenario_result = analysis_service.run_analysis(
+                listing_id=listing_id,
+                finance_profile_id=finance_profile_id,
+                benchmarks=scenario_benchmarks,
+                save_result=False,
+            )
+            st.session_state[LAST_SCENARIO_RESULT_KEY] = scenario_result
+            st.session_state[LAST_SCENARIO_LISTING_ID_KEY] = listing_id
+            st.session_state[LAST_SCENARIO_PROFILE_ID_KEY] = finance_profile_id
+        except ValueError as exc:
+            st.error(str(exc))
+            st.session_state.pop(LAST_SCENARIO_RESULT_KEY, None)
+
+    scenario_result = _current_scenario_result(
+        listing_id=listing_id,
+        finance_profile_id=finance_profile_id,
+    )
+    if not scenario_result:
+        return
+
+    _render_scenario_summary_cards(
+        baseline_result=baseline_result,
+        scenario_result=scenario_result,
+    )
+    comparison_rows = _scenario_comparison_rows(
+        baseline_result=baseline_result,
+        scenario_result=scenario_result,
+    )
+    st.dataframe(pd.DataFrame(comparison_rows), use_container_width=True, hide_index=True)
+    _render_interest_rate_scenario_note(
+        baseline_result=baseline_result,
+        scenario_result=scenario_result,
+        interest_rate_change_pct=interest_rate_change_pct,
+    )
+
+    interpretation_lines = _scenario_interpretation_lines(
+        baseline_result=baseline_result,
+        scenario_result=scenario_result,
+        sale_price_change_pct=sale_price_change_pct,
+        jeonse_price_change_pct=jeonse_price_change_pct,
+        interest_rate_change_pct=interest_rate_change_pct,
+        ltv_change_pct=ltv_change_pct,
+    )
+    if interpretation_lines:
+        st.write("해석")
+        for line in interpretation_lines:
+            st.write(f"- {line}")
+    limited_impact_lines = _scenario_limited_impact_lines(
+        baseline_result=baseline_result,
+        scenario_result=scenario_result,
+        jeonse_price_change_pct=jeonse_price_change_pct,
+        ltv_change_pct=ltv_change_pct,
+    )
+    if limited_impact_lines:
+        st.write("영향이 제한된 이유")
+        for line in limited_impact_lines:
+            st.write(f"- {line}")
+    score_line = _scenario_score_line(
+        baseline_result=baseline_result,
+        scenario_result=scenario_result,
+        has_input_changes=_scenario_has_input_changes(
+            sale_price_change_pct=sale_price_change_pct,
+            jeonse_price_change_pct=jeonse_price_change_pct,
+            interest_rate_change_pct=interest_rate_change_pct,
+            ltv_change_pct=ltv_change_pct,
+        ),
+    )
+    if score_line:
+        st.write("투자점수 변화")
+        st.write(f"- {score_line}")
+
+
+def _current_scenario_result(*, listing_id: int, finance_profile_id: int) -> dict | None:
+    if st.session_state.get(LAST_SCENARIO_LISTING_ID_KEY) != listing_id:
+        return None
+    if st.session_state.get(LAST_SCENARIO_PROFILE_ID_KEY) != finance_profile_id:
+        return None
+    return st.session_state.get(LAST_SCENARIO_RESULT_KEY)
+
+
+def _build_scenario_benchmarks(
+    *,
+    baseline_benchmarks: BenchmarkInputs,
+    baseline_result: dict,
+    sale_price_change_pct: int,
+    jeonse_price_change_pct: int,
+    interest_rate_change_pct: float,
+    ltv_change_pct: int,
+) -> BenchmarkInputs:
+    base_sale_price = int(baseline_result["sale_price"])
+    base_jeonse_price = int(baseline_result.get("expected_jeonse_price") or 0)
+    base_interest_rate = (baseline_result.get("applied_rules") or {}).get("monthly_repayment", {}).get(
+        "annual_interest_rate"
+    )
+    base_ltv_rate = (baseline_result.get("applied_rules") or {}).get("loan_ltv", {}).get(
+        "applied_ltv_rate"
+    )
+
+    scenario_sale_price = int(round(base_sale_price * (1 + sale_price_change_pct / 100)))
+    scenario_jeonse_price = int(round(base_jeonse_price * (1 + jeonse_price_change_pct / 100)))
+    scenario_interest_rate = (
+        None
+        if base_interest_rate is None
+        else max(0.0, float(base_interest_rate) + float(interest_rate_change_pct) / 100)
+    )
+    scenario_ltv_rate = (
+        None
+        if base_ltv_rate is None
+        else min(1.0, max(0.0, float(base_ltv_rate) + float(ltv_change_pct) / 100))
+    )
+
+    return BenchmarkInputs(
+        repair_cost=baseline_benchmarks.repair_cost,
+        sale_price_override=scenario_sale_price,
+        expected_loan_amount=baseline_benchmarks.expected_loan_amount,
+        ltv_rate_override=scenario_ltv_rate,
+        interest_rate_override=scenario_interest_rate,
+        recent_avg_price_override=baseline_benchmarks.recent_avg_price_override,
+        one_year_high_price_override=baseline_benchmarks.one_year_high_price_override,
+        expected_jeonse_price_override=scenario_jeonse_price,
+        analysis_mode=baseline_benchmarks.analysis_mode,
+        reference_date=baseline_benchmarks.reference_date,
+        region_type=baseline_benchmarks.region_type,
+        buyer_type=baseline_benchmarks.buyer_type,
+        purpose=baseline_benchmarks.purpose,
+        tax_rule_version=baseline_benchmarks.tax_rule_version,
+        brokerage_rule_version=baseline_benchmarks.brokerage_rule_version,
+        acquisition_tax_override=baseline_benchmarks.acquisition_tax_override,
+        local_education_tax_override=baseline_benchmarks.local_education_tax_override,
+        brokerage_fee_override=baseline_benchmarks.brokerage_fee_override,
+        legal_fee_override=baseline_benchmarks.legal_fee_override,
+        reserve_cost_override=baseline_benchmarks.reserve_cost_override,
+        funding_mode=baseline_benchmarks.funding_mode,
+    )
+
+
+def _scenario_comparison_rows(*, baseline_result: dict, scenario_result: dict) -> list[dict[str, str]]:
+    rows = [
+        ("예상 대출", baseline_result.get("expected_loan_amount"), scenario_result.get("expected_loan_amount"), "money"),
+        ("총 필요 현금", baseline_result.get("required_cash"), scenario_result.get("required_cash"), "money"),
+        ("추가 필요 현금", baseline_result.get("shortage_cash"), scenario_result.get("shortage_cash"), "money"),
+        (
+            "은행 승인액 기준 월 부담",
+            baseline_result.get("monthly_repayment"),
+            scenario_result.get("monthly_repayment"),
+            "money",
+        ),
+        ("투자점수", baseline_result.get("investment_score"), scenario_result.get("investment_score"), "score"),
+    ]
+    return [
+        {
+            "항목": label,
+            "현재": _scenario_value_label(current, kind),
+            "변경 후": _scenario_value_label(changed, kind),
+            "차이": _scenario_delta_label(current, changed, kind),
+        }
+        for label, current, changed, kind in rows
+    ]
+
+def _scenario_value_label(value: int | float | None, kind: str) -> str:
+    if value is None:
+        return "-"
+    if kind == "money":
+        return _format_scenario_money(value)
+    if kind == "score":
+        return f"{int(value)}점"
+    return str(value)
+
+
+def _format_scenario_money(value: int | float | None) -> str:
+    if value is None:
+        return "-"
+    amount = int(value)
+    if abs(amount) >= 100_000_000:
+        return f"{amount / 100_000_000:.2f}억"
+    return format_compact_won(amount)
+
+
+def _scenario_delta_label(current: int | float | None, changed: int | float | None, kind: str) -> str:
+    if current is None or changed is None:
+        return "-"
+    delta = changed - current
+    if kind == "money":
+        if delta == 0:
+            return "0원"
+        sign = "+" if delta > 0 else ""
+        return f"{sign}{format_compact_won(int(delta))}"
+    if kind == "score":
+        if delta == 0:
+            return "0점"
+        sign = "+" if delta > 0 else ""
+        return f"{sign}{int(delta)}점"
+    return "-"
+
+
+def _render_scenario_summary_cards(*, baseline_result: dict, scenario_result: dict) -> None:
+    same_loan_pair = _same_loan_monthly_repayment_pair(
+        baseline_result=baseline_result,
+        scenario_result=scenario_result,
+    )
+    same_loan_current = same_loan_pair[0] if same_loan_pair is not None else None
+    same_loan_changed = same_loan_pair[1] if same_loan_pair is not None else None
+
+    rows = [
+        (
+            "추가 준비 현금",
+            baseline_result.get("shortage_cash"),
+            scenario_result.get("shortage_cash"),
+            "money",
+            "금리/가격 변화로 인해 실제로 더 준비해야 하는 현금",
+        ),
+        (
+            "기존 대출금 유지 시 월 부담",
+            same_loan_current,
+            same_loan_changed,
+            "money",
+            "현재 대출액을 유지한다고 가정한 경우의 월 상환 부담",
+        ),
+        (
+            "은행 승인액 기준 월 부담",
+            baseline_result.get("monthly_repayment"),
+            scenario_result.get("monthly_repayment"),
+            "money",
+            "시나리오 적용 후 실제 승인 가능한 대출액 기준 월 상환액",
+        ),
+        (
+            "투자점수",
+            baseline_result.get("investment_score"),
+            scenario_result.get("investment_score"),
+            "score",
+            None,
+        ),
+        (
+            "은행 대출 가능액",
+            baseline_result.get("expected_loan_amount"),
+            scenario_result.get("expected_loan_amount"),
+            "money",
+            "DSR 기준으로 은행이 승인 가능한 예상 대출액",
+        ),
+    ]
+    cols = st.columns(len(rows))
+    for col, (label, current, changed, kind, help_text) in zip(cols, rows):
+        col.metric(
+            label,
+            f"{_scenario_value_label(current, kind)} → {_scenario_value_label(changed, kind)}",
+            _scenario_delta_summary_label(current, changed, kind),
+        )
+        if help_text:
+            col.caption(help_text)
+
+
+def _scenario_delta_summary_label(current: int | float | None, changed: int | float | None, kind: str) -> str:
+    if current is None or changed is None:
+        return "변화 없음"
+    if changed == current:
+        return "변화 없음"
+    return _scenario_delta_label(current, changed, kind)
+
+
+def _render_interest_rate_scenario_note(
+    *,
+    baseline_result: dict,
+    scenario_result: dict,
+    interest_rate_change_pct: float,
+) -> None:
+    if interest_rate_change_pct == 0:
+        return
+
+    if interest_rate_change_pct > 0:
+        st.info(
+            "금리 상승 시에는 은행 대출 가능액, 동일 대출 유지 시 월상환액, "
+            "승인 대출 기준 월상환액을 구분해서 확인해 주세요."
+        )
+    else:
+        st.info(
+            "금리 변화 시에는 은행 대출 가능액과 월상환액이 함께 재계산됩니다. "
+            "동일 대출 유지 기준과 승인 대출 기준 결과를 함께 확인해 주세요."
+        )
+
+
+def _same_loan_monthly_repayment_pair(
+    *,
+    baseline_result: dict,
+    scenario_result: dict,
+) -> tuple[int | None, int | None] | None:
+    loan_amount = baseline_result.get("expected_loan_amount")
+    if loan_amount is None:
+        return None
+
+    baseline_rate = (
+        (baseline_result.get("applied_rules") or {})
+        .get("monthly_repayment", {})
+        .get("annual_interest_rate")
+    )
+    scenario_rate = (
+        (scenario_result.get("applied_rules") or {})
+        .get("monthly_repayment", {})
+        .get("annual_interest_rate")
+    )
+    if baseline_rate is None or scenario_rate is None:
+        return None
+
+    current = calculate_monthly_repayment(
+        loan_amount=int(loan_amount),
+        annual_interest_rate=float(baseline_rate),
+        loan_term_years=30,
+    )
+    changed = calculate_monthly_repayment(
+        loan_amount=int(loan_amount),
+        annual_interest_rate=float(scenario_rate),
+        loan_term_years=30,
+    )
+    return current, changed
+
+
+def _scenario_interpretation_lines(
+    *,
+    baseline_result: dict,
+    scenario_result: dict,
+    sale_price_change_pct: int,
+    jeonse_price_change_pct: int,
+    interest_rate_change_pct: float,
+    ltv_change_pct: int,
+) -> list[str]:
+    lines: list[str] = []
+
+    shortage_delta = _numeric_delta(scenario_result.get("shortage_cash"), baseline_result.get("shortage_cash"))
+    loan_delta = _numeric_delta(
+        scenario_result.get("expected_loan_amount"),
+        baseline_result.get("expected_loan_amount"),
+    )
+    score_delta = _numeric_delta(
+        scenario_result.get("investment_score"),
+        baseline_result.get("investment_score"),
+    )
+    repayment_delta = _numeric_delta(
+        scenario_result.get("monthly_repayment"),
+        baseline_result.get("monthly_repayment"),
+    )
+    same_loan_pair = _same_loan_monthly_repayment_pair(
+        baseline_result=baseline_result,
+        scenario_result=scenario_result,
+    )
+    same_loan_delta = None
+    if same_loan_pair is not None:
+        same_loan_delta = _numeric_delta(same_loan_pair[1], same_loan_pair[0])
+    if shortage_delta is not None:
+        if _is_effectively_zero_money_delta(shortage_delta):
+            lines.append("추가 준비 현금은 그대로입니다.")
+        else:
+            lines.append(f"추가 준비 현금이 약 {_delta_money_phrase(shortage_delta)}했습니다.")
+
+    if same_loan_delta is not None:
+        if _is_effectively_zero_money_delta(same_loan_delta):
+            lines.append("기존 대출금 유지 시 월 부담은 그대로입니다.")
+        else:
+            lines.append(f"기존 대출금 유지 시 월 부담은 약 {_delta_money_phrase(same_loan_delta)}했습니다.")
+
+    if repayment_delta is not None:
+        if _is_effectively_zero_money_delta(repayment_delta):
+            lines.append("은행 승인액 기준 월 부담은 그대로입니다.")
+        else:
+            lines.append(f"은행 승인액 기준 월 부담은 약 {_delta_money_phrase(repayment_delta)}했습니다.")
+
+    if loan_delta is not None:
+        if _is_effectively_zero_money_delta(loan_delta):
+            lines.append("은행 대출 가능액은 그대로입니다.")
+        else:
+            lines.append(f"은행 대출 가능액은 약 {_delta_money_phrase(loan_delta)}했습니다.")
+
+    if not lines and not _scenario_has_input_changes(
+        sale_price_change_pct=sale_price_change_pct,
+        jeonse_price_change_pct=jeonse_price_change_pct,
+        interest_rate_change_pct=interest_rate_change_pct,
+        ltv_change_pct=ltv_change_pct,
+    ):
+        lines.append("현재 결과와 동일합니다.")
+    return lines
+
+
+def _scenario_limited_impact_lines(
+    *,
+    baseline_result: dict,
+    scenario_result: dict,
+    jeonse_price_change_pct: int,
+    ltv_change_pct: int,
+) -> list[str]:
+    lines: list[str] = []
+    loan_delta = _numeric_delta(
+        scenario_result.get("expected_loan_amount"),
+        baseline_result.get("expected_loan_amount"),
+    )
+    shortage_delta = _numeric_delta(
+        scenario_result.get("shortage_cash"),
+        baseline_result.get("shortage_cash"),
+    )
+
+    if ltv_change_pct != 0 and loan_delta is not None and _is_effectively_zero_money_delta(loan_delta):
+        limiting_factor = _scenario_limiting_factor_text(scenario_result)
+        if limiting_factor:
+            lines.append(
+                f"LTV를 변경했지만 현재 대출은 {limiting_factor}에 의해 제한되어 대출 가능액이 변하지 않았습니다."
+            )
+        else:
+            lines.append("LTV를 변경했지만 현재 대출은 다른 상한 규칙에 의해 제한되어 대출 가능액이 변하지 않았습니다.")
+
+    if jeonse_price_change_pct != 0 and shortage_delta is not None and _is_effectively_zero_money_delta(shortage_delta):
+        if scenario_result.get("primary_user_mode") == "OWNER_OCCUPIED":
+            lines.append(
+                "전세가를 변경했지만 실거주 기준 분석에서는 전세보증금을 매수 자금에서 차감하지 않아 추가 준비 현금에 영향이 없습니다."
+            )
+        else:
+            lines.append("전세가를 변경했지만 이번 변화는 추가 준비 현금 계산에 직접 반영되지 않아 영향이 제한적입니다.")
+
+    return lines[:2]
+
+
+def _scenario_score_line(
+    *,
+    baseline_result: dict,
+    scenario_result: dict,
+    has_input_changes: bool,
+) -> str | None:
+    score_delta = _numeric_delta(
+        scenario_result.get("investment_score"),
+        baseline_result.get("investment_score"),
+    )
+    if score_delta is None:
+        return None
+    if score_delta == 0:
+        if has_input_changes:
+            return "투자점수는 주요 점수 구간이 바뀌지 않아 동일하게 유지되었습니다."
+        return f"투자점수는 {int(scenario_result.get('investment_score') or 0)}점으로 변화가 없습니다."
+    if score_delta > 0:
+        return f"투자점수가 {int(score_delta)}점 개선되었습니다."
+    return f"투자점수가 {abs(int(score_delta))}점 하락했습니다."
+
+
+def _scenario_has_input_changes(
+    *,
+    sale_price_change_pct: int,
+    jeonse_price_change_pct: int,
+    interest_rate_change_pct: float,
+    ltv_change_pct: int,
+) -> bool:
+    return any(
+        (
+            sale_price_change_pct != 0,
+            jeonse_price_change_pct != 0,
+            interest_rate_change_pct != 0,
+            ltv_change_pct != 0,
+        )
+    )
+
+
+def _scenario_limiting_factor_text(result: dict) -> str | None:
+    factor = (
+        (((result.get("applied_rules") or {}).get("loan_ltv") or {}).get("final_limiting_factor"))
+        or ""
+    )
+    factor_text = str(factor).strip()
+    if not factor_text or factor_text == "-":
+        return None
+    return factor_text
+
+
+def _is_effectively_zero_money_delta(value: int | float | None) -> bool:
+    if value is None:
+        return False
+    return abs(float(value)) < 10_000
+
+
+def _compare_numeric(changed: int | float | None, current: int | float | None) -> int:
+    if changed is None or current is None:
+        return 0
+    if changed > current:
+        return 1
+    if changed < current:
+        return -1
+    return 0
+
+
+def _numeric_delta(changed: int | float | None, current: int | float | None) -> int | float | None:
+    if changed is None or current is None:
+        return None
+    return changed - current
+
+
+def _delta_money_phrase(delta: int | float) -> str:
+    direction = "증가" if delta > 0 else "감소"
+    return f"{format_compact_won(abs(int(delta)))} {direction}"
+
+
+def _signed_percent_label(value: int | float) -> str:
+    return f"{value:+.1f}%"
+
+
+def _signed_point_label(value: int | float) -> str:
+    return f"{value:+.1f}%p"
 
 
 def _render_decision_highlight(result: dict) -> None:
@@ -966,6 +1545,23 @@ def _format_ratio_percent(value: float | None) -> str:
     if _is_missing_value(value):
         return "정보 없음"
     return f"{float(value) * 100:.1f}%"
+
+
+def _high_interest_rate_warning(result: dict) -> str | None:
+    interest_rate = (
+        ((result.get("applied_rules") or {}).get("monthly_repayment") or {}).get(
+            "annual_interest_rate"
+        )
+    )
+    if interest_rate is None:
+        return None
+    normalized_rate = float(interest_rate)
+    if normalized_rate < 0.2:
+        return None
+    return (
+        f"현재 적용 금리 {_format_ratio_percent(normalized_rate)}. "
+        "일반적인 주택담보대출 금리 범위를 크게 초과합니다. 금리 입력값을 확인하세요."
+    )
 
 
 def _applied_method_label(value: object) -> str:

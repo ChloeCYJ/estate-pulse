@@ -42,8 +42,10 @@ SPECIFIC_REGULATED_REGION_TYPES = (
 @dataclass
 class BenchmarkInputs:
     repair_cost: int = 0
+    sale_price_override: int | None = None
     expected_loan_amount: int | None = None
     ltv_rate_override: float | None = None
+    interest_rate_override: float | None = None
     recent_avg_price_override: int | None = None
     one_year_high_price_override: int | None = None
     expected_jeonse_price_override: int | None = None
@@ -105,6 +107,12 @@ class AnalysisService:
             raise ValueError("Listing not found.")
         if not finance_profile:
             raise ValueError("Finance profile not found.")
+        listing = dict(listing)
+        finance_profile = dict(finance_profile)
+        if benchmarks.sale_price_override is not None:
+            listing["sale_price"] = int(benchmarks.sale_price_override)
+        if benchmarks.interest_rate_override is not None:
+            finance_profile["interest_rate"] = float(benchmarks.interest_rate_override)
         funding_mode = _normalize_funding_mode(benchmarks.funding_mode)
         purchase_power = _calculate_purchase_power(
             finance_profile=finance_profile,

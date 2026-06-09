@@ -137,14 +137,18 @@ def _render_profile_form(
             key=f"{form_key}_annual_income",
         )
         interest_rate = st.number_input(
-            "금리",
+            "연 이자율 (%)",
             min_value=0.0,
-            step=0.005,
-            value=float(selected.get("interest_rate") or 0.0),
-            format="%.3f",
-            help="예: 4%는 0.04로 입력합니다. 입력하지 않으면 월상환액과 DSR 계산을 생략합니다.",
+            step=0.1,
+            value=_interest_rate_input_value(selected.get("interest_rate")),
+            format="%.2f",
+            help="예: 4%는 4.0으로 입력합니다. 입력하지 않으면 월상환액과 DSR 계산을 생략합니다.",
             key=f"{form_key}_interest_rate",
         )
+        ambiguous_interest_rate_warning = _interest_rate_input_warning(interest_rate)
+        if ambiguous_interest_rate_warning:
+            st.warning(ambiguous_interest_rate_warning)
+        st.caption("예: 4%는 4.0으로 입력합니다.")
         st.caption("연소득과 금리는 분석 시 월 상환액 및 대출 한도(DSR) 계산에 사용됩니다.")
 
         st.markdown("### 부채")
@@ -260,6 +264,9 @@ def _render_profile_form(
     if payload["cash_amount"] <= 0:
         st.error("보유 현금은 필수입니다.")
         return None
+    if _interest_rate_input_warning(interest_rate):
+        st.error("금리는 % 기준으로 입력해 주세요. 4%를 의미했다면 4.0으로 다시 입력해 주세요.")
+        return None
     if payload["use_manual_ltv"] and payload["manual_ltv_rate"] is None:
         st.error("수동 LTV를 사용하려면 0~1 범위의 값을 입력해 주세요.")
         return None
@@ -292,7 +299,7 @@ def _build_profile_payload(
                 )
             )
         ),
-        "interest_rate": _to_optional_ratio(interest_rate),
+        "interest_rate": _to_optional_interest_rate_ratio(interest_rate),
         "ltv_limit": selected.get("ltv_limit"),
         "dsr_limit": selected.get("dsr_limit"),
         "home_count": home_count,
@@ -367,10 +374,28 @@ def _to_optional_won(value_eok: float) -> int | None:
     return int(from_eok(value_eok))
 
 
-def _to_optional_ratio(value: float) -> float | None:
-    if value <= 0:
+def _to_optional_interest_rate_ratio(value_percent: float) -> float | None:
+    if value_percent <= 0:
         return None
-    return float(value)
+    return float(value_percent) / 100
+
+
+def _interest_rate_input_value(value: float | None) -> float:
+    if value is None:
+        return 0.0
+    normalized = float(value)
+    if normalized <= 1:
+        return normalized * 100
+    return normalized
+
+
+def _interest_rate_input_warning(value_percent: float) -> str | None:
+    if 0.2 <= float(value_percent) <= 1.0:
+        return (
+            f"{value_percent:.2f}를 입력하셨습니다. 현재 입력 기준은 % 단위입니다. "
+            "4%를 의미했다면 4.0으로 입력해 주세요."
+        )
+    return None
 
 
 def _format_money_or_dash(value: int | None) -> str:
