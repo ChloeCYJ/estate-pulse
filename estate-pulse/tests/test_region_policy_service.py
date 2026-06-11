@@ -147,7 +147,7 @@ class RegionPolicyServiceTests(unittest.TestCase):
         )
 
         policy_types = {item["policy_type"] for item in result["active_policies"]}
-        self.assertEqual(result["region_type"], "ADJUSTMENT_TARGET_AREA")
+        self.assertEqual(result["region_type"], "LAND_TRANSACTION_PERMISSION")
         self.assertEqual(
             policy_types,
             {
@@ -156,6 +156,61 @@ class RegionPolicyServiceTests(unittest.TestCase):
                 "ADJUSTMENT_TARGET_AREA",
             },
         )
+
+    def test_region_regulation_precedence_is_deterministic_regardless_of_insertion_order(self) -> None:
+        for policy_type in (
+            "ADJUSTMENT_TARGET_AREA",
+            "SPECULATION_OVERHEATED_DISTRICT",
+            "LAND_TRANSACTION_PERMISSION",
+        ):
+            self.service.create_region_policy_status(
+                region_level="SIGUNGU",
+                sido="서울",
+                sigungu="성북구",
+                dong=None,
+                policy_type=policy_type,
+                effective_from="2026-05-01",
+                effective_to=None,
+                notes=None,
+            )
+
+        first_result = self.service.resolve_region_context(
+            sido="서울",
+            sigungu="성북구",
+            dong=None,
+            reference_date=date(2026, 5, 30),
+        )
+
+        second_database_path = Path(self.temp_dir.name) / "test-second.db"
+        initialize_database(second_database_path)
+        second_repository = RegionPolicyRepository(second_database_path)
+        second_service = RegionPolicyService(region_policy_repository=second_repository)
+
+        for policy_type in (
+            "LAND_TRANSACTION_PERMISSION",
+            "SPECULATION_OVERHEATED_DISTRICT",
+            "ADJUSTMENT_TARGET_AREA",
+        ):
+            second_service.create_region_policy_status(
+                region_level="SIGUNGU",
+                sido="서울",
+                sigungu="성북구",
+                dong=None,
+                policy_type=policy_type,
+                effective_from="2026-05-01",
+                effective_to=None,
+                notes=None,
+            )
+
+        second_result = second_service.resolve_region_context(
+            sido="서울",
+            sigungu="성북구",
+            dong=None,
+            reference_date=date(2026, 5, 30),
+        )
+
+        self.assertEqual(first_result["region_type"], "LAND_TRANSACTION_PERMISSION")
+        self.assertEqual(second_result["region_type"], "LAND_TRANSACTION_PERMISSION")
 
     def test_non_regulated_status_cannot_overlap_regulated_status(self) -> None:
         self.service.create_region_policy_status(
@@ -174,6 +229,30 @@ class RegionPolicyServiceTests(unittest.TestCase):
                 region_level="SIGUNGU",
                 sido="\uc11c\uc6b8",
                 sigungu="\uc131\ubd81\uad6c",
+                dong=None,
+                policy_type="NON_REGULATED_AREA",
+                effective_from="2026-05-01",
+                effective_to=None,
+                notes=None,
+            )
+
+    def test_non_regulated_status_cannot_overlap_land_transaction_permission(self) -> None:
+        self.service.create_region_policy_status(
+            region_level="SIGUNGU",
+            sido="서울",
+            sigungu="성북구",
+            dong=None,
+            policy_type="LAND_TRANSACTION_PERMISSION",
+            effective_from="2026-05-01",
+            effective_to=None,
+            notes=None,
+        )
+
+        with self.assertRaisesRegex(ValueError, "non-regulated status cannot overlap"):
+            self.service.create_region_policy_status(
+                region_level="SIGUNGU",
+                sido="서울",
+                sigungu="성북구",
                 dong=None,
                 policy_type="NON_REGULATED_AREA",
                 effective_from="2026-05-01",

@@ -266,7 +266,7 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
         self.assertEqual(result["resolved_buyer_type"], "NO_HOME")
         self.assertEqual(result["loan_terms"]["buyer_type"], "NO_HOME")
 
-    def test_missing_non_regulated_buyer_rule_falls_back_to_no_home_rule(self) -> None:
+    def test_missing_non_regulated_one_home_rule_does_not_fallback_to_no_home_rule(self) -> None:
         one_home_profile_id = self.finance_repository.create(
             cash_amount=250_000_000,
             annual_income=None,
@@ -277,16 +277,32 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
             home_count=1,
         )
 
-        result = self.analysis_service.run_analysis(
-            listing_id=self.listing_id,
-            finance_profile_id=one_home_profile_id,
-            benchmarks=BenchmarkInputs(reference_date=date(2026, 5, 27)),
-            save_result=False,
+        with self.assertRaisesRegex(ValueError, "No matching loan rule was found."):
+            self.analysis_service.run_analysis(
+                listing_id=self.listing_id,
+                finance_profile_id=one_home_profile_id,
+                benchmarks=BenchmarkInputs(reference_date=date(2026, 5, 27)),
+                save_result=False,
+            )
+
+    def test_missing_non_regulated_multi_home_rule_does_not_fallback_to_no_home_rule(self) -> None:
+        multi_home_profile_id = self.finance_repository.create(
+            cash_amount=250_000_000,
+            annual_income=None,
+            existing_debt=0,
+            interest_rate=None,
+            ltv_limit=None,
+            dsr_limit=None,
+            home_count=2,
         )
 
-        self.assertEqual(result["resolved_buyer_type"], "ONE_HOME")
-        self.assertEqual(result["loan_rule_buyer_type"], "NO_HOME")
-        self.assertEqual(result["loan_terms"]["buyer_type"], "NO_HOME")
+        with self.assertRaisesRegex(ValueError, "No matching loan rule was found."):
+            self.analysis_service.run_analysis(
+                listing_id=self.listing_id,
+                finance_profile_id=multi_home_profile_id,
+                benchmarks=BenchmarkInputs(reference_date=date(2026, 5, 27)),
+                save_result=False,
+            )
 
     def test_sell_owned_real_estate_funding_mode_uses_net_sale_cash(self) -> None:
         replacement_profile_id = self.finance_repository.create(
@@ -307,6 +323,7 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
             benchmarks=BenchmarkInputs(
                 reference_date=date(2026, 5, 27),
                 funding_mode="SELL_OWNED_REAL_ESTATE",
+                buyer_type="NO_HOME",
             ),
             save_result=False,
         )
@@ -448,7 +465,7 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
         )
 
         policy_types = {item["policy_type"] for item in result["active_region_policies"]}
-        self.assertEqual(result["resolved_region_type"], "ADJUSTMENT_TARGET_AREA")
+        self.assertEqual(result["resolved_region_type"], "LAND_TRANSACTION_PERMISSION")
         self.assertEqual(
             policy_types,
             {"LAND_TRANSACTION_PERMISSION", "ADJUSTMENT_TARGET_AREA"},

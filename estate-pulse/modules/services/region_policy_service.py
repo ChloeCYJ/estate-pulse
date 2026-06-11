@@ -11,6 +11,12 @@ POLICY_TYPES = (
     "SPECULATION_OVERHEATED_DISTRICT",
     "ADJUSTMENT_TARGET_AREA",
 )
+REGULATED_POLICY_TYPES = (
+    "REGULATED_AREA",
+    "LAND_TRANSACTION_PERMISSION",
+    "SPECULATION_OVERHEATED_DISTRICT",
+    "ADJUSTMENT_TARGET_AREA",
+)
 CREATABLE_POLICY_TYPES = (
     "NON_REGULATED_AREA",
     "LAND_TRANSACTION_PERMISSION",
@@ -25,11 +31,12 @@ _LOAN_POLICY_TO_REGION_TYPE = {
     "SPECULATION_OVERHEATED_DISTRICT": "SPECULATION_OVERHEATED_DISTRICT",
     "ADJUSTMENT_TARGET_AREA": "ADJUSTMENT_TARGET_AREA",
 }
-_POSITIVE_LOAN_POLICY_TYPES = {
-    "REGULATED_AREA",
-    "LAND_TRANSACTION_PERMISSION",
-    "SPECULATION_OVERHEATED_DISTRICT",
-    "ADJUSTMENT_TARGET_AREA",
+REGION_POLICY_PRECEDENCE = {
+    "LAND_TRANSACTION_PERMISSION": 5,
+    "SPECULATION_OVERHEATED_DISTRICT": 4,
+    "ADJUSTMENT_TARGET_AREA": 3,
+    "REGULATED_AREA": 2,
+    "NON_REGULATED_AREA": 1,
 }
 _SPECIFICITY_SCORE = {
     "SIDO": 1,
@@ -117,6 +124,7 @@ class RegionPolicyService:
             key=lambda item: (
                 int(item["specificity_score"]),
                 str(item["effective_from"]),
+                REGION_POLICY_PRECEDENCE.get(str(item["policy_type"]), 0),
                 int(item["id"]),
             ),
             reverse=True,
@@ -221,8 +229,8 @@ class RegionPolicyService:
     def _is_non_regulated_conflict(self, left_policy_type: str, right_policy_type: str) -> bool:
         left_is_non_regulated = left_policy_type == "NON_REGULATED_AREA"
         right_is_non_regulated = right_policy_type == "NON_REGULATED_AREA"
-        left_is_regulated = left_policy_type in _POSITIVE_LOAN_POLICY_TYPES
-        right_is_regulated = right_policy_type in _POSITIVE_LOAN_POLICY_TYPES
+        left_is_regulated = left_policy_type in REGULATED_POLICY_TYPES
+        right_is_regulated = right_policy_type in REGULATED_POLICY_TYPES
         return (left_is_non_regulated and right_is_regulated) or (
             right_is_non_regulated and left_is_regulated
         )

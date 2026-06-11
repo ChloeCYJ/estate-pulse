@@ -13,6 +13,8 @@ from modules.services.policy_parsers import (
     get_default_policy_parsers,
 )
 from modules.services.policy_event_service import PolicyEventService
+from modules.services.region_policy_service import POLICY_TYPES as REGION_POLICY_TYPES
+from modules.services.region_policy_service import REGULATED_POLICY_TYPES
 from modules.services.rule_runtime_service import RuleRuntimeService
 
 
@@ -736,13 +738,7 @@ class PolicyImportService:
 
         if normalized_rule["region_level"] not in {"SIDO", "SIGUNGU", "DONG"}:
             errors.append("region_level must be one of SIDO, SIGUNGU, or DONG.")
-        if normalized_rule["policy_type"] not in {
-            "REGULATED_AREA",
-            "NON_REGULATED_AREA",
-            "LAND_TRANSACTION_PERMISSION",
-            "SPECULATION_OVERHEATED_DISTRICT",
-            "ADJUSTMENT_TARGET_AREA",
-        }:
+        if normalized_rule["policy_type"] not in REGION_POLICY_TYPES:
             errors.append(
                 "policy_type must be a supported region regulation type."
             )
@@ -768,7 +764,9 @@ class PolicyImportService:
         if not normalized_rule["notes"].strip():
             warnings.append("notes is empty.")
         if normalized_rule["policy_type"] == "LAND_TRANSACTION_PERMISSION":
-            warnings.append("LAND_TRANSACTION_PERMISSION affects region status review, not loan region type directly.")
+            warnings.append(
+                "LAND_TRANSACTION_PERMISSION is treated as a loan region type and should be reviewed carefully."
+            )
 
         return ValidationResult(normalized_rule=normalized_rule, warnings=warnings, errors=errors)
 
@@ -1347,15 +1345,10 @@ def _has_overlapping_region_policy(active_rules: list[dict], proposed_rule: dict
 
 
 def _is_non_regulated_region_policy_conflict(left_policy_type: str, right_policy_type: str) -> bool:
-    positive_policy_types = {
-        "REGULATED_AREA",
-        "SPECULATION_OVERHEATED_DISTRICT",
-        "ADJUSTMENT_TARGET_AREA",
-    }
     left_is_non_regulated = left_policy_type == "NON_REGULATED_AREA"
     right_is_non_regulated = right_policy_type == "NON_REGULATED_AREA"
-    left_is_regulated = left_policy_type in positive_policy_types
-    right_is_regulated = right_policy_type in positive_policy_types
+    left_is_regulated = left_policy_type in REGULATED_POLICY_TYPES
+    right_is_regulated = right_policy_type in REGULATED_POLICY_TYPES
     return (left_is_non_regulated and right_is_regulated) or (
         right_is_non_regulated and left_is_regulated
     )
