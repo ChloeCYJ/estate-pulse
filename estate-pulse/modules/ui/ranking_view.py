@@ -59,7 +59,7 @@ def render_ranking_page(
                 "전세가율": row.get("jeonse_ratio"),
                 "단지 등급": row.get("complex_grade_label"),
                 "유동성 점수": row.get("liquidity_score"),
-                "투자 점수": row.get("investment_score"),
+                "투자점수": row.get("investment_score"),
             }
         )
 
@@ -74,7 +74,7 @@ def render_ranking_page(
 def _format_money_or_dash(value: int | float | None) -> str:
     if value is None or pd.isna(value):
         return "-"
-    return format_compact_won(value)
+    return format_compact_won(max(int(value), 0))
 
 
 def _format_percent_or_dash(value: float | None) -> str:
@@ -95,7 +95,7 @@ def _render_top_rank_cards(rows: list[dict]) -> None:
             st.markdown(f"**{medals[idx]}**")
             st.write(row.get("complex_name") or "-")
             st.write(f"매매가: {_format_money_or_dash(row.get('sale_price'))}")
-            st.metric("투자 점수", _format_text_or_dash(row.get("investment_score")))
+            st.metric("투자점수", _format_text_or_dash(row.get("investment_score")))
             st.write(
                 f"추가 필요 현금: {_format_money_or_dash(row.get('shortage_cash'))}"
             )
@@ -131,16 +131,32 @@ def _format_text_or_dash(value: object) -> str:
 
 
 def _top_rank_reason_lines(row: dict) -> list[str]:
-    lines: list[str] = []
-    if row.get("investment_score") is not None:
-        lines.append(f"투자점수 {_format_text_or_dash(row.get('investment_score'))}점")
-    if row.get("bargain_score") is not None:
-        lines.append(f"급매점수 {_format_text_or_dash(row.get('bargain_score'))}점")
-    if row.get("jeonse_ratio") is not None:
-        lines.append(f"전세가율 {_format_percent_or_dash(row.get('jeonse_ratio'))}")
-    if row.get("complex_grade_label"):
-        lines.append(f"단지등급 {row.get('complex_grade_label')}")
     shortage_cash = row.get("shortage_cash")
-    if shortage_cash is not None:
-        lines.append(f"추가 필요 현금 {_format_money_or_dash(shortage_cash)}")
-    return lines[:5]
+    bargain_score = float(row.get("bargain_score") or 0)
+    liquidity_score = float(row.get("liquidity_score") or 0)
+    complex_grade = str(row.get("complex_grade_label") or "")
+
+    lines: list[str] = []
+    if shortage_cash is not None and float(shortage_cash) <= 0:
+        lines.append("현재 자금으로 진입 가능합니다.")
+    elif shortage_cash is not None:
+        lines.append(f"추가 필요 현금이 {_format_money_or_dash(shortage_cash)}입니다.")
+
+    if bargain_score >= 60:
+        lines.append("급매 매력이 높은 편입니다.")
+    elif bargain_score <= 20:
+        lines.append("급매 매력은 제한적입니다.")
+
+    if liquidity_score >= 80:
+        lines.append("유동성이 우수합니다.")
+    elif liquidity_score < 35:
+        lines.append("유동성은 보수적으로 확인할 필요가 있습니다.")
+
+    if complex_grade in {"리더", "준대장"}:
+        lines.append(f"{complex_grade} 단지입니다.")
+    elif complex_grade and complex_grade != "-":
+        lines.append(f"{complex_grade} 단지로 분류됩니다.")
+
+    if not lines and row.get("investment_score") is not None:
+        lines.append(f"현재 후보 중 투자점수 {_format_text_or_dash(row.get('investment_score'))}점입니다.")
+    return lines[:4]

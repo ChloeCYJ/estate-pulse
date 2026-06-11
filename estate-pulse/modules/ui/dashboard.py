@@ -48,7 +48,7 @@ def render_dashboard_page(
         cols[0].metric("추천 후보", best_candidate["단지"])
         cols[1].metric("투자점수", _best_candidate_score_label(best_candidate))
         cols[1].caption("현재 등록 후보 중 최고점")
-        cols[2].metric("부족 자금", _best_candidate_shortage_label(best_candidate))
+        cols[2].metric("추가 필요 현금", _best_candidate_shortage_label(best_candidate))
         cols[3].metric("매수 가능 여부", _best_candidate_purchase_status(best_candidate))
 
         st.subheader("지금 무엇을 사야 하는가")
@@ -88,7 +88,7 @@ def render_dashboard_page(
                 "cash_surplus": "매수 후 현금 잔액",
                 "bargain_score": "급매 점수",
                 "liquidity_score": "유동성",
-                "investment_score": "투자 점수",
+                "investment_score": "투자점수",
                 "complex_grade": "등급",
                 "created_at": "분석일",
             }
@@ -102,7 +102,7 @@ def render_dashboard_page(
             [
                 "단지",
                 "매수가",
-                "투자 점수",
+                "투자점수",
                 "등급",
                 "추가 필요 현금",
                 "매수 후 현금 잔액",
@@ -200,6 +200,20 @@ def _numeric_value(value: object) -> float:
         return float(value or 0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _first_numeric_value(row: dict[str, object], *keys: str) -> float | None:
+    for key in keys:
+        if key not in row:
+            continue
+        value = row.get(key)
+        if value in (None, ""):
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 def _shortage_needed_amount(value: object) -> int:
@@ -327,7 +341,7 @@ def _best_candidate_payload(row: dict[str, object]) -> dict[str, object]:
     available_cash = max(required_cash - raw_shortage_cash, 0)
     return {
         "단지": row.get("complex_name") or "-",
-        "투자 점수": int(_numeric_value(row.get("investment_score"))),
+        "투자점수": int(_numeric_value(row.get("investment_score"))),
         "유동성": int(_numeric_value(row.get("liquidity_score"))),
         "급매 점수": int(_numeric_value(row.get("bargain_score"))),
         "현재 자금": format_compact_won(available_cash),
@@ -365,7 +379,15 @@ def _best_candidate_purchase_status(row: dict[str, object]) -> str:
 
 
 def _best_candidate_score_label(row: dict[str, object]) -> str:
-    return f"{int(_numeric_value(row.get('투자 점수')))}점"
+    score = _first_numeric_value(
+        row,
+        "투자점수",
+        "투자 점수",
+        "investment_score",
+    )
+    if score is None:
+        return "-"
+    return f"{int(score)}점"
 
 
 def _best_candidate_reasons(row: dict[str, object]) -> list[str]:

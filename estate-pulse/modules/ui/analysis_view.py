@@ -527,6 +527,7 @@ def _scenario_comparison_rows(*, baseline_result: dict, scenario_result: dict) -
         ),
         ("투자점수", baseline_result.get("investment_score"), scenario_result.get("investment_score"), "score"),
     ]
+    rows[2] = (*rows[2][:3], "shortage_money")
     return [
         {
             "항목": label,
@@ -540,7 +541,9 @@ def _scenario_comparison_rows(*, baseline_result: dict, scenario_result: dict) -
 def _scenario_value_label(value: int | float | None, kind: str) -> str:
     if value is None:
         return "-"
-    if kind == "money":
+    if kind == "shortage_money":
+        return _format_scenario_money(max(int(value), 0))
+    if kind in {"money", "shortage_money"}:
         return _format_scenario_money(value)
     if kind == "score":
         return f"{int(value)}점"
@@ -560,7 +563,7 @@ def _scenario_delta_label(current: int | float | None, changed: int | float | No
     if current is None or changed is None:
         return "-"
     delta = changed - current
-    if kind == "money":
+    if kind in {"money", "shortage_money"}:
         if delta == 0:
             return "0원"
         sign = "+" if delta > 0 else ""
@@ -618,6 +621,7 @@ def _render_scenario_summary_cards(*, baseline_result: dict, scenario_result: di
             "DSR 기준으로 은행이 승인 가능한 예상 대출액",
         ),
     ]
+    rows[0] = (*rows[0][:3], "shortage_money", rows[0][4])
     cols = st.columns(len(rows))
     for col, (label, current, changed, kind, help_text) in zip(cols, rows):
         col.metric(
@@ -1347,7 +1351,7 @@ def _render_formula_explainer(result: dict) -> None:
             f"- 급매 점수: {result['bargain_score']}",
             f"- 유동성 점수: {result['liquidity_score']}",
             f"- 단지 등급: {_complex_grade_label(result.get('complex_grade'))}",
-            f"- 투자 점수: {result['investment_score']}",
+            f"- 투자점수: {result['investment_score']}",
         ]
     )
     st.markdown("\n".join(lines))
@@ -1476,7 +1480,7 @@ def _render_recent_analysis_history(recent_results: list[dict]) -> None:
                 "shortage_cash": "추가 필요 현금",
                 "bargain_score": "급매 점수",
                 "liquidity_score": "유동성 점수",
-                "investment_score": "투자 점수",
+                "investment_score": "투자점수",
                 "complex_grade": "단지 등급",
                 "created_at": "분석일",
             }
@@ -1497,10 +1501,10 @@ def _render_recent_analysis_history(recent_results: list[dict]) -> None:
             x="complex_name",
             y="investment_score",
             color="complex_grade_label",
-            title="최근 투자 점수",
+            title="최근 투자점수",
             labels={
                 "complex_name": "단지",
-                "investment_score": "투자 점수",
+                "investment_score": "투자점수",
                 "complex_grade_label": "단지 등급",
             },
         )

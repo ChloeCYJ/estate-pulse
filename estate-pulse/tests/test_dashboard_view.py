@@ -65,6 +65,12 @@ class DashboardViewTests(unittest.TestCase):
         self.assertIn("가장 현실적인 선택지", _best_candidate_conclusion(feasible_row))
         self.assertIn("약 7.6억의 추가 자금 확보", _best_candidate_conclusion(constrained_row))
 
+    def test_best_candidate_score_label_supports_raw_analysis_row_shape(self) -> None:
+        self.assertEqual(
+            _best_candidate_score_label({"investment_score": 41}),
+            "41점",
+        )
+
     def test_best_candidate_reasons_surface_top_rank_and_cash_context(self) -> None:
         reasons = _best_candidate_reasons(
             {

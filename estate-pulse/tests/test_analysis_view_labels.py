@@ -9,6 +9,7 @@ from modules.ui.analysis_view import (
     _loan_region_type_label,
     _missing_metric_reason,
     _region_policy_type_label,
+    _scenario_comparison_rows,
     _scenario_interpretation_lines,
     _scenario_limited_impact_lines,
     _scenario_score_line,
@@ -158,6 +159,29 @@ class AnalysisViewLabelTests(unittest.TestCase):
         )
 
         self.assertIn("주요 점수 구간이 바뀌지 않아", line)
+
+    def test_scenario_comparison_rows_clamp_negative_shortage_display(self) -> None:
+        rows = _scenario_comparison_rows(
+            baseline_result={
+                "expected_loan_amount": 400_000_000,
+                "required_cash": 300_000_000,
+                "shortage_cash": -50_000_000,
+                "monthly_repayment": 1_500_000,
+                "investment_score": 22,
+            },
+            scenario_result={
+                "expected_loan_amount": 400_000_000,
+                "required_cash": 320_000_000,
+                "shortage_cash": 30_000_000,
+                "monthly_repayment": 1_600_000,
+                "investment_score": 20,
+            },
+        )
+
+        shortage_row = rows[2]
+        self.assertEqual(shortage_row["현재"], "0원")
+        self.assertEqual(shortage_row["변경 후"], "3000만")
+        self.assertEqual(shortage_row["차이"], "+8000만")
 
     def test_interest_rate_interpretation_separates_loan_and_repayment_effects(self) -> None:
         lines = _scenario_interpretation_lines(

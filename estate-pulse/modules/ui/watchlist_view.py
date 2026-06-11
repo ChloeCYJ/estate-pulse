@@ -143,7 +143,7 @@ def _profile_label(profile: dict) -> str:
 def _format_money_or_dash(value: int | float | None) -> str:
     if value is None or pd.isna(value):
         return "-"
-    return format_compact_won(value)
+    return format_compact_won(max(int(value), 0))
 
 
 def _format_datetime_or_dash(value: str | None) -> str:
