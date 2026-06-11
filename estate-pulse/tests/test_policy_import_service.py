@@ -398,6 +398,59 @@ class PolicyImportServiceTests(unittest.TestCase):
 
         self.assertEqual(rows[0]["policy_type"], "ADJUSTMENT_TARGET_AREA")
 
+    def test_region_policy_validation_detects_non_regulated_overlap_with_land_transaction_permission(self) -> None:
+        self.region_policy_service.create_region_policy_status(
+            region_level="SIGUNGU",
+            sido="서울",
+            sigungu="성북구",
+            dong=None,
+            policy_type="LAND_TRANSACTION_PERMISSION",
+            effective_from="2026-05-01",
+            effective_to=None,
+            notes=None,
+        )
+
+        validation = self.service.validate_rule_candidate(
+            target_rule_type="REGION_POLICY",
+            previous_rule=None,
+            proposed_rule={
+                "region_level": "SIGUNGU",
+                "sido": "서울",
+                "sigungu": "성북구",
+                "dong": None,
+                "policy_type": "NON_REGULATED_AREA",
+                "effective_from": "2026-05-01",
+                "effective_to": None,
+                "notes": "overlap check",
+            },
+        )
+
+        self.assertIn(
+            "An overlapping active region policy already exists for the same scope.",
+            validation.errors,
+        )
+
+    def test_region_policy_validation_warning_matches_runtime_land_transaction_behavior(self) -> None:
+        validation = self.service.validate_rule_candidate(
+            target_rule_type="REGION_POLICY",
+            previous_rule=None,
+            proposed_rule={
+                "region_level": "SIGUNGU",
+                "sido": "서울",
+                "sigungu": "성북구",
+                "dong": None,
+                "policy_type": "LAND_TRANSACTION_PERMISSION",
+                "effective_from": "2026-05-01",
+                "effective_to": None,
+                "notes": "warning check",
+            },
+        )
+
+        self.assertIn(
+            "LAND_TRANSACTION_PERMISSION is treated as a loan region type and should be reviewed carefully.",
+            validation.warnings,
+        )
+
     def test_validation_detects_overlapping_loan_rule(self) -> None:
         validation = self.service.validate_rule_candidate(
             target_rule_type="LOAN",

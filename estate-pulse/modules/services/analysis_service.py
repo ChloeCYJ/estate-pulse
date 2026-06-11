@@ -727,20 +727,15 @@ def _resolve_loan_rule_buyer_type(
     reference_date: date | None,
     rules,
 ) -> str:
-    try:
-        select_loan_rule(
-            sale_price=sale_price,
-            region_type=region_type,
-            buyer_type=buyer_type,
-            purpose=purpose,
-            reference_date=reference_date,
-            rules=rules,
-        )
-        return buyer_type
-    except ValueError:
-        if buyer_type == "NO_HOME":
-            raise
-        return "NO_HOME"
+    select_loan_rule(
+        sale_price=sale_price,
+        region_type=region_type,
+        buyer_type=buyer_type,
+        purpose=purpose,
+        reference_date=reference_date,
+        rules=rules,
+    )
+    return buyer_type
 
 
 def _build_applied_rules_trace(
