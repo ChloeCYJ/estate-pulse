@@ -20,3 +20,8 @@ Complex Registration에서 단지 등록
 Manual Listing Input에서 매물 등록
 Finance Profile Input에서 자금 프로필 등록
 Analysis Result에서 최근 평균가, 1년 최고가를 넣고 분석 실행
+
+
+#postgresql 추가
+$env:DATABASE_URL="postgresql://estate:estate@localhost:5432/estate_pulse"
+.\.venv\Scripts\python -m streamlit run app.py

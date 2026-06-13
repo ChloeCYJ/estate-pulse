@@ -37,25 +37,26 @@ from modules.ui.watchlist_view import render_watchlist_page
 
 def main() -> None:
     settings = get_settings()
-    initialize_database(settings.database_path)
+    database_target = settings.database_target
+    initialize_database(database_target)
 
     st.set_page_config(
         page_title=settings.app_name,
         layout="wide",
     )
 
-    complex_repository = ApartmentComplexRepository(settings.database_path)
-    listing_repository = ManualListingRepository(settings.database_path)
-    finance_repository = UserFinanceProfileRepository(settings.database_path)
-    analysis_repository = AnalysisRepository(settings.database_path)
-    sale_transaction_repository = SaleTransactionRepository(settings.database_path)
-    rent_transaction_repository = RentTransactionRepository(settings.database_path)
-    watchlist_repository = WatchlistRepository(settings.database_path)
-    policy_event_repository = PolicyEventRepository(settings.database_path)
-    policy_event_candidate_repository = PolicyEventCandidateRepository(settings.database_path)
-    policy_import_repository = PolicyImportRepository(settings.database_path)
-    rule_candidate_repository = RuleCandidateRepository(settings.database_path)
-    region_policy_repository = RegionPolicyRepository(settings.database_path)
+    complex_repository = ApartmentComplexRepository(database_target)
+    listing_repository = ManualListingRepository(database_target)
+    finance_repository = UserFinanceProfileRepository(database_target)
+    analysis_repository = AnalysisRepository(database_target)
+    sale_transaction_repository = SaleTransactionRepository(database_target)
+    rent_transaction_repository = RentTransactionRepository(database_target)
+    watchlist_repository = WatchlistRepository(database_target)
+    policy_event_repository = PolicyEventRepository(database_target)
+    policy_event_candidate_repository = PolicyEventCandidateRepository(database_target)
+    policy_import_repository = PolicyImportRepository(database_target)
+    rule_candidate_repository = RuleCandidateRepository(database_target)
+    region_policy_repository = RegionPolicyRepository(database_target)
     rule_runtime_service = RuleRuntimeService(
         rule_candidate_repository=rule_candidate_repository,
     )

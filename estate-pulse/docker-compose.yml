@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: estate-postgres
+    environment:
+      POSTGRES_USER: estate
+      POSTGRES_PASSWORD: estate
+      POSTGRES_DB: estate_pulse
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U estate -d estate_pulse"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - estate-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  estate-postgres-data:

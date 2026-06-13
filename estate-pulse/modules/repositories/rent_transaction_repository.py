@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from modules.repositories.database import execute, execute_many, fetch_all
+from modules.repositories.database import build_deal_date_sql, execute, execute_many, fetch_all
 
 
 class RentTransactionRepository:
@@ -56,12 +56,13 @@ class RentTransactionRepository:
         area_m2: float,
         area_tolerance: float = 5.0,
     ) -> list[dict]:
+        deal_date_sql = build_deal_date_sql(self.database_path)
         return fetch_all(
             self.database_path,
-            """
+            f"""
             SELECT
                 *,
-                printf('%04d-%02d-%02d', deal_year, deal_month, deal_day) AS deal_date
+                {deal_date_sql} AS deal_date
             FROM rent_transaction
             WHERE complex_id = ?
               AND ABS(area_m2 - ?) <= ?
@@ -82,12 +83,13 @@ class RentTransactionRepository:
         )
 
     def list_all(self) -> list[dict]:
+        deal_date_sql = build_deal_date_sql(self.database_path)
         return fetch_all(
             self.database_path,
-            """
+            f"""
             SELECT
                 *,
-                printf('%04d-%02d-%02d', deal_year, deal_month, deal_day) AS deal_date
+                {deal_date_sql} AS deal_date
             FROM rent_transaction
             ORDER BY deal_year ASC, deal_month ASC, deal_day ASC, id ASC
             """,

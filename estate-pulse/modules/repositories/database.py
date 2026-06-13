@@ -1,8 +1,17 @@
 from __future__ import annotations
 
+from datetime import date, datetime
+import re
 import sqlite3
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Mapping, Sequence
+
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+except ImportError:  # pragma: no cover - optional dependency for PostgreSQL runtime support
+    psycopg = None
+    dict_row = None
 
 
 SCHEMA_STATEMENTS = [
@@ -250,12 +259,39 @@ SCHEMA_STATEMENTS = [
     """,
 ]
 
+POSTGRES_SCHEMA_PATH = (
+    Path(__file__).resolve().parents[2] / "migrations" / "postgres" / "0001_initial_schema.sql"
+)
+POSTGRES_URL_PREFIXES = ("postgresql://", "postgres://")
+INSERT_TABLE_PATTERN = re.compile(r"INSERT\s+INTO\s+([a-zA-Z_][a-zA-Z0-9_]*)", re.IGNORECASE)
 
-def get_connection(database_path: Path | str) -> sqlite3.Connection:
-    database_path = Path(database_path)
-    database_path.parent.mkdir(parents=True, exist_ok=True)
 
-    connection = sqlite3.connect(database_path)
+def is_postgres_target(database_path: Path | str) -> bool:
+    return isinstance(database_path, str) and database_path.startswith(POSTGRES_URL_PREFIXES)
+
+
+def build_deal_date_sql(database_path: Path | str) -> str:
+    if is_postgres_target(database_path):
+        return (
+            "LPAD(deal_year::text, 4, '0') || '-' || "
+            "LPAD(deal_month::text, 2, '0') || '-' || "
+            "LPAD(deal_day::text, 2, '0')"
+        )
+    return "printf('%04d-%02d-%02d', deal_year, deal_month, deal_day)"
+
+
+def get_connection(database_path: Path | str) -> Any:
+    if is_postgres_target(database_path):
+        if psycopg is None or dict_row is None:
+            raise RuntimeError(
+                "PostgreSQL support requires psycopg. Install project dependencies first."
+            )
+        return psycopg.connect(str(database_path), row_factory=dict_row)
+
+    sqlite_database_path = Path(database_path)
+    sqlite_database_path.parent.mkdir(parents=True, exist_ok=True)
+
+    connection = sqlite3.connect(sqlite_database_path)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
@@ -263,6 +299,12 @@ def get_connection(database_path: Path | str) -> sqlite3.Connection:
 
 def initialize_database(database_path: Path | str) -> None:
     with get_connection(database_path) as connection:
+        if is_postgres_target(database_path):
+            for statement in _load_postgres_schema_statements():
+                connection.execute(statement)
+            connection.commit()
+            return
+
         for statement in SCHEMA_STATEMENTS:
             connection.execute(statement)
         _ensure_manual_listing_columns(connection)
@@ -274,29 +316,37 @@ def initialize_database(database_path: Path | str) -> None:
 
 def execute(database_path: Path | str, query: str, parameters: Sequence[Any] = ()) -> int:
     with get_connection(database_path) as connection:
-        cursor = connection.execute(query, parameters)
+        cursor = connection.execute(_prepare_query(database_path, query), parameters)
+        if is_postgres_target(database_path) and _is_insert_query(query):
+            row = cursor.fetchone()
+            connection.commit()
+            return _extract_inserted_id(row)
         connection.commit()
-        return int(cursor.lastrowid)
+        return int(getattr(cursor, "lastrowid", 0) or 0)
 
 
 def execute_many(
     database_path: Path | str, query: str, parameters: Iterable[Sequence[Any]]
 ) -> None:
     with get_connection(database_path) as connection:
-        connection.executemany(query, parameters)
+        if is_postgres_target(database_path):
+            with connection.cursor() as cursor:
+                cursor.executemany(_prepare_query(database_path, query), parameters)
+        else:
+            connection.executemany(query, parameters)
         connection.commit()
 
 
 def fetch_one(database_path: Path | str, query: str, parameters: Sequence[Any] = ()) -> dict | None:
     with get_connection(database_path) as connection:
-        row = connection.execute(query, parameters).fetchone()
-    return dict(row) if row else None
+        row = connection.execute(_prepare_query(database_path, query), parameters).fetchone()
+    return _normalize_row(row)
 
 
 def fetch_all(database_path: Path | str, query: str, parameters: Sequence[Any] = ()) -> list[dict]:
     with get_connection(database_path) as connection:
-        rows = connection.execute(query, parameters).fetchall()
-    return [dict(row) for row in rows]
+        rows = connection.execute(_prepare_query(database_path, query), parameters).fetchall()
+    return [_normalize_row(row) for row in rows if row is not None]
 
 
 def _ensure_user_finance_profile_columns(connection: sqlite3.Connection) -> None:
@@ -405,3 +455,61 @@ def _ensure_apartment_complex_columns(connection: sqlite3.Connection) -> None:
     }
     if "complex_grade" not in existing_columns:
         connection.execute("ALTER TABLE apartment_complex ADD COLUMN complex_grade TEXT")
+
+
+def _prepare_query(database_path: Path | str, query: str) -> str:
+    prepared_query = query
+    if is_postgres_target(database_path):
+        prepared_query = prepared_query.replace("?", "%s")
+        if _is_insert_query(query) and "RETURNING" not in prepared_query.upper():
+            table_name = _extract_insert_table_name(query)
+            primary_key_column = _primary_key_column(table_name)
+            prepared_query = f"{prepared_query.rstrip()} RETURNING {primary_key_column}"
+    return prepared_query
+
+
+def _is_insert_query(query: str) -> bool:
+    return bool(INSERT_TABLE_PATTERN.search(query))
+
+
+def _extract_insert_table_name(query: str) -> str:
+    matched = INSERT_TABLE_PATTERN.search(query)
+    if matched is None:
+        raise ValueError("Unable to determine insert target table.")
+    return matched.group(1).lower()
+
+
+def _primary_key_column(table_name: str) -> str:
+    if table_name == "policy_event":
+        return "policy_event_id"
+    return "id"
+
+
+def _extract_inserted_id(row: Any) -> int:
+    if row is None:
+        return 0
+    if isinstance(row, Mapping):
+        value = next(iter(row.values()), 0)
+        return int(value or 0)
+    if isinstance(row, Sequence) and not isinstance(row, (str, bytes, bytearray)):
+        return int(row[0] or 0)
+    return int(row or 0)
+
+
+def _normalize_row(row: Any) -> dict | None:
+    if row is None:
+        return None
+    return {key: _normalize_value(value) for key, value in dict(row).items()}
+
+
+def _normalize_value(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
+
+
+def _load_postgres_schema_statements() -> list[str]:
+    schema_sql = POSTGRES_SCHEMA_PATH.read_text(encoding="utf-8")
+    return [statement.strip() for statement in schema_sql.split(";") if statement.strip()]

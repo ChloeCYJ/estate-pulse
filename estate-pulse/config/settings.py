@@ -23,6 +23,11 @@ class AppSettings:
     default_ltv_limit: float
     molit_service_key: str | None
     reb_service_key: str | None
+    database_url: str | None = None
+
+    @property
+    def database_target(self) -> Path | str:
+        return self.database_url or self.database_path
 
 
 def _get_env_float(name: str, default: float) -> float:
@@ -37,8 +42,10 @@ def _get_env_int(name: str, default: int) -> int:
 
 @lru_cache(maxsize=1)
 def get_settings() -> AppSettings:
+    database_url = os.getenv("DATABASE_URL")
     database_path = Path(os.getenv("DATABASE_PATH", BASE_DIR / "data" / "app.db"))
-    database_path.parent.mkdir(parents=True, exist_ok=True)
+    if not database_url:
+        database_path.parent.mkdir(parents=True, exist_ok=True)
 
     return AppSettings(
         app_name=os.getenv("APP_NAME", "Estate Pulse"),
@@ -50,4 +57,5 @@ def get_settings() -> AppSettings:
         default_ltv_limit=_get_env_float("DEFAULT_LTV_LIMIT", 0.6),
         molit_service_key=os.getenv("MOLIT_SERVICE_KEY"),
         reb_service_key=os.getenv("REB_SERVICE_KEY"),
+        database_url=database_url,
     )

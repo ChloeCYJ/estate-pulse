@@ -77,6 +77,20 @@ Copy-Item .env.example .env
 
 The app creates `data/app.db` automatically on first run.
 
+## Local PostgreSQL
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install_postgres_windows.ps1
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\init_postgres.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\run_postgres_smoke.ps1
+.\.venv\Scripts\python -m streamlit run app.py
+```
+
+The Windows install/init flow creates the `estate` role, the `estate_pulse` and `estate_pulse_test` databases, and applies `migrations/postgres/0001_initial_schema.sql` to both databases.
+
 ## User Workflow
 
 1. Register one or more apartment complexes.
