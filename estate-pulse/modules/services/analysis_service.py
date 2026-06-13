@@ -418,6 +418,7 @@ class AnalysisService:
             analysis_id = self.analysis_repository.create(
                 {
                     "listing_id": listing_id,
+                    "finance_profile_id": finance_profile_id,
                     "investment_type": investment_type,
                     "required_cash": required_cash,
                     "shortage_cash": shortage_cash,
@@ -437,6 +438,17 @@ class AnalysisService:
                     "liquidity_score": complex_profile["liquidity_score"],
                     "investment_score": investment_score_result["investment_score"],
                     "complex_grade": complex_profile["complex_grade"],
+                    "sale_price_snapshot": listing["sale_price"],
+                    "jeonse_price_snapshot": market_context["derived_inputs"][
+                        "expected_jeonse_price"
+                    ],
+                    "area_m2_snapshot": listing.get("area_m2"),
+                    "complex_name_snapshot": listing["complex_name"],
+                    "available_cash_snapshot": purchase_power["available_cash_for_purchase"],
+                    "annual_income_snapshot": finance_profile.get("annual_income"),
+                    "buyer_type_snapshot": resolved_buyer_type,
+                    "expected_loan_amount": expected_loan_amount,
+                    "monthly_repayment": mode_metrics.get("monthly_repayment"),
                     "jeonse_ratio": jeonse_ratio,
                     "discount_vs_recent_avg": bargain_result["discount_rate"],
                     "drop_from_high": bargain_result["drop_from_high"],

@@ -16,6 +16,7 @@ class AnalysisRepository:
             """
             INSERT INTO analysis_result (
                 listing_id,
+                finance_profile_id,
                 investment_type,
                 required_cash,
                 shortage_cash,
@@ -33,6 +34,15 @@ class AnalysisRepository:
                 liquidity_score,
                 investment_score,
                 complex_grade,
+                sale_price_snapshot,
+                jeonse_price_snapshot,
+                area_m2_snapshot,
+                complex_name_snapshot,
+                available_cash_snapshot,
+                annual_income_snapshot,
+                buyer_type_snapshot,
+                expected_loan_amount,
+                monthly_repayment,
                 jeonse_ratio,
                 discount_vs_recent_avg,
                 drop_from_high,
@@ -44,10 +54,11 @@ class AnalysisRepository:
                 summary,
                 created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 payload["listing_id"],
+                payload.get("finance_profile_id"),
                 payload.get("investment_type"),
                 payload["required_cash"],
                 payload["shortage_cash"],
@@ -65,6 +76,15 @@ class AnalysisRepository:
                 payload.get("liquidity_score"),
                 payload.get("investment_score"),
                 payload.get("complex_grade"),
+                payload.get("sale_price_snapshot"),
+                payload.get("jeonse_price_snapshot"),
+                payload.get("area_m2_snapshot"),
+                payload.get("complex_name_snapshot"),
+                payload.get("available_cash_snapshot"),
+                payload.get("annual_income_snapshot"),
+                payload.get("buyer_type_snapshot"),
+                payload.get("expected_loan_amount"),
+                payload.get("monthly_repayment"),
                 payload["jeonse_ratio"],
                 payload["discount_vs_recent_avg"],
                 payload["drop_from_high"],
@@ -82,10 +102,15 @@ class AnalysisRepository:
         return fetch_all(
             self.database_path,
             """
-            SELECT ar.*, ml.sale_price, ml.expected_jeonse_price, ac.name AS complex_name
+            SELECT
+                ar.*,
+                COALESCE(ar.sale_price_snapshot, ml.sale_price) AS sale_price,
+                COALESCE(ar.jeonse_price_snapshot, ml.expected_jeonse_price) AS expected_jeonse_price,
+                COALESCE(ar.area_m2_snapshot, ml.area_m2) AS area_m2,
+                COALESCE(ar.complex_name_snapshot, ac.name) AS complex_name
             FROM analysis_result ar
-            JOIN manual_listing ml ON ml.id = ar.listing_id
-            JOIN apartment_complex ac ON ac.id = ml.complex_id
+            LEFT JOIN manual_listing ml ON ml.id = ar.listing_id
+            LEFT JOIN apartment_complex ac ON ac.id = ml.complex_id
             ORDER BY ar.created_at DESC
             LIMIT ?
             """,

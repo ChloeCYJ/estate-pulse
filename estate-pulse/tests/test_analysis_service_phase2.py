@@ -501,6 +501,125 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
         self.assertEqual(len(result["relevant_policy_events"]), 1)
         self.assertEqual(result["relevant_policy_events"][0]["title"], "Multi-home tax relief sunset")
 
+    def test_saved_analysis_persists_snapshot_fields_and_finance_profile_id(self) -> None:
+        owner_profile_id = self.finance_repository.create(
+            cash_amount=300_000_000,
+            annual_income=120_000_000,
+            existing_debt=0,
+            interest_rate=0.04,
+            ltv_limit=None,
+            dsr_limit=None,
+        )
+
+        result = self.analysis_service.run_analysis(
+            listing_id=self.listing_id,
+            finance_profile_id=owner_profile_id,
+            benchmarks=BenchmarkInputs(
+                reference_date=date(2026, 5, 27),
+                analysis_mode="OWNER_OCCUPIED",
+            ),
+            save_result=True,
+        )
+
+        saved = self.analysis_repository.get_latest_by_listing(self.listing_id)
+
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved["finance_profile_id"], owner_profile_id)
+        self.assertEqual(saved["sale_price_snapshot"], 900_000_000)
+        self.assertEqual(saved["jeonse_price_snapshot"], 540_000_000)
+        self.assertAlmostEqual(saved["area_m2_snapshot"], 84.9)
+        self.assertEqual(saved["complex_name_snapshot"], "Test Complex")
+        self.assertEqual(saved["available_cash_snapshot"], 300_000_000)
+        self.assertEqual(saved["annual_income_snapshot"], 120_000_000)
+        self.assertEqual(saved["buyer_type_snapshot"], "NO_HOME")
+        self.assertEqual(saved["expected_loan_amount"], result["expected_loan_amount"])
+        self.assertEqual(saved["monthly_repayment"], result["monthly_repayment"])
+
+    def test_list_recent_keeps_snapshot_values_after_listing_and_complex_mutation(self) -> None:
+        self.analysis_service.run_analysis(
+            listing_id=self.listing_id,
+            finance_profile_id=self.profile_id,
+            benchmarks=BenchmarkInputs(reference_date=date(2026, 5, 27)),
+            save_result=True,
+        )
+
+        self.listing_repository.update(
+            self.listing_id,
+            complex_id=self.complex_id,
+            area_m2=59.9,
+            sale_price=1_500_000_000,
+            expected_jeonse_price=200_000_000,
+            investment_type="GAP_INVESTMENT",
+            takeover_jeonse_deposit=0,
+            rent_deposit=0,
+            expected_monthly_rent=0,
+            floor="20",
+            direction="?⑦뼢",
+            condition_memo="updated",
+            source_memo="updated",
+            checked_at="2026-06-01",
+        )
+        self.complex_repository.update(
+            self.complex_id,
+            name="Updated Complex",
+            sido="?쒖슱",
+            sigungu="?쒖큹援?",
+            dong="諛섑룷??",
+            address="?쒖슱 ?쒖큹援?諛섑룷??",
+            build_year=2020,
+            household_count=None,
+            lat=None,
+            lng=None,
+            memo="updated",
+        )
+
+        rows = self.analysis_repository.list_recent(limit=10)
+        latest = rows[0]
+
+        self.assertEqual(latest["sale_price"], 900_000_000)
+        self.assertEqual(latest["expected_jeonse_price"], 540_000_000)
+        self.assertAlmostEqual(latest["area_m2"], 84.9)
+        self.assertEqual(latest["complex_name"], "Test Complex")
+
+    def test_list_recent_falls_back_to_live_values_for_legacy_rows_without_snapshots(self) -> None:
+        self.analysis_repository.create(
+            {
+                "listing_id": self.listing_id,
+                "investment_type": "GAP_INVESTMENT",
+                "required_cash": 210_000_000,
+                "shortage_cash": -40_000_000,
+                "current_required_cash": 210_000_000,
+                "future_required_cash": None,
+                "monthly_cash_flow": None,
+                "acquisition_tax": 0,
+                "local_education_tax": 0,
+                "brokerage_fee": 0,
+                "legal_fee": 0,
+                "reserve_cost": 0,
+                "total_transaction_cost": 0,
+                "applied_tax_rule_version": None,
+                "applied_brokerage_rule_version": None,
+                "liquidity_score": 60,
+                "investment_score": 70,
+                "complex_grade": "NORMAL",
+                "jeonse_ratio": 60.0,
+                "discount_vs_recent_avg": 5.0,
+                "drop_from_high": 4.0,
+                "bargain_score": 55,
+                "loan_rule_version": "legacy-test",
+                "decision": "legacy",
+                "summary": "legacy row",
+            }
+        )
+
+        rows = self.analysis_repository.list_recent(limit=10)
+        latest = rows[0]
+
+        self.assertEqual(latest["sale_price"], 900_000_000)
+        self.assertEqual(latest["expected_jeonse_price"], 0)
+        self.assertAlmostEqual(latest["area_m2"], 84.9)
+        self.assertEqual(latest["complex_name"], "Test Complex")
+
     def _sale_tx(self, deal_date: str, price: int) -> dict:
         year, month, day = (int(part) for part in deal_date.split("-"))
         return {

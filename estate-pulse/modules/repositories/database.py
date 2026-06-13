@@ -107,6 +107,7 @@ SCHEMA_STATEMENTS = [
     CREATE TABLE IF NOT EXISTS analysis_result (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         listing_id INTEGER NOT NULL,
+        finance_profile_id INTEGER,
         required_cash INTEGER,
         shortage_cash INTEGER,
         jeonse_ratio REAL,
@@ -130,11 +131,21 @@ SCHEMA_STATEMENTS = [
         liquidity_score INTEGER,
         investment_score INTEGER,
         complex_grade TEXT,
+        sale_price_snapshot INTEGER,
+        jeonse_price_snapshot INTEGER,
+        area_m2_snapshot REAL,
+        complex_name_snapshot TEXT,
+        available_cash_snapshot INTEGER,
+        annual_income_snapshot INTEGER,
+        buyer_type_snapshot TEXT,
+        expected_loan_amount INTEGER,
+        monthly_repayment INTEGER,
         loan_rule_version TEXT,
         decision TEXT,
         summary TEXT,
         created_at TEXT NOT NULL,
-        FOREIGN KEY (listing_id) REFERENCES manual_listing(id) ON DELETE CASCADE
+        FOREIGN KEY (listing_id) REFERENCES manual_listing(id) ON DELETE CASCADE,
+        FOREIGN KEY (finance_profile_id) REFERENCES user_finance_profile(id) ON DELETE SET NULL
     )
     """,
     """
@@ -320,6 +331,8 @@ def _ensure_analysis_result_columns(connection: sqlite3.Connection) -> None:
     existing_columns = {
         row["name"] for row in connection.execute("PRAGMA table_info(analysis_result)").fetchall()
     }
+    if "finance_profile_id" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN finance_profile_id INTEGER")
     if "investment_type" not in existing_columns:
         connection.execute("ALTER TABLE analysis_result ADD COLUMN investment_type TEXT")
     if "current_required_cash" not in existing_columns:
@@ -352,6 +365,24 @@ def _ensure_analysis_result_columns(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE analysis_result ADD COLUMN investment_score INTEGER")
     if "complex_grade" not in existing_columns:
         connection.execute("ALTER TABLE analysis_result ADD COLUMN complex_grade TEXT")
+    if "sale_price_snapshot" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN sale_price_snapshot INTEGER")
+    if "jeonse_price_snapshot" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN jeonse_price_snapshot INTEGER")
+    if "area_m2_snapshot" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN area_m2_snapshot REAL")
+    if "complex_name_snapshot" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN complex_name_snapshot TEXT")
+    if "available_cash_snapshot" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN available_cash_snapshot INTEGER")
+    if "annual_income_snapshot" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN annual_income_snapshot INTEGER")
+    if "buyer_type_snapshot" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN buyer_type_snapshot TEXT")
+    if "expected_loan_amount" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN expected_loan_amount INTEGER")
+    if "monthly_repayment" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN monthly_repayment INTEGER")
 
 
 def _ensure_manual_listing_columns(connection: sqlite3.Connection) -> None:
