@@ -232,18 +232,18 @@ def calculate_bargain_score(
 
 ## Current Architecture Update
 
-Estate Pulse currently uses a layered Streamlit + SQLite architecture.
+Estate Pulse currently uses a layered Streamlit architecture with SQLite fallback and PostgreSQL runtime support.
 
 ### Runtime Stack
 
 - UI: Streamlit pages under `modules/ui/`
-- Storage: SQLite through repository classes under `modules/repositories/`
+- Storage: SQLite by default, or PostgreSQL when `DATABASE_URL` is set, through repository classes under `modules/repositories/`
 - Business orchestration: services under `modules/services/`
 - Calculation/scoring: analyzers under `modules/analyzers/`
 - Configuration: `config/`
 - Tests: `tests/`
 
-The module boundaries are kept so a future FastAPI + PostgreSQL migration can reuse most Repository, Service, and Analyzer logic.
+The module boundaries are kept so a future FastAPI + broader PostgreSQL migration can reuse most Repository, Service, and Analyzer logic. The current PostgreSQL work is runtime support plus smoke verification, not a full migration framework.
 
 ### Layer Responsibilities
 
@@ -255,11 +255,19 @@ The module boundaries are kept so a future FastAPI + PostgreSQL migration can re
 ### Main Domains
 
 - Basic analysis: `apartment_complex`, `manual_listing`, `user_finance_profile`, `analysis_result`, `sale_transaction`, and `rent_transaction`.
+- `analysis_result` now also acts as the saved history snapshot source for listing values, finance-profile values, `finance_profile_id`, `expected_loan_amount`, and `monthly_repayment`.
 - Comparison/ranking: `watchlist`, `OpportunityService`, bargain score, liquidity score, complex grade, and overall investment score.
 - Investor-facing summary UI: Dashboard, watchlist, comparison, ranking, and analysis explainability all reuse saved analysis results and existing calculator outputs rather than a separate recommendation engine.
 - Policy/rule administration: policy imports, rule candidates, loan rules, tax rules, brokerage/cost rules, regional regulation rows, and review/approval/application workflows.
 - Policy Event: useful policy information that is not necessarily applied to calculation rules. It is currently an admin CRUD/review feature, not a standalone user lookup page.
 - Regional regulation: active region status rows in `region_policy_status`.
+
+### Analysis History Snapshot Behavior
+
+- Dashboard and Analysis History use snapshot-first reads from `analysis_result` for saved listing and finance values.
+- Legacy rows that do not have snapshot columns populated still fall back to live joined listing/complex values so older history does not crash.
+- The legacy fallback means older history rows are not fully immutable snapshots.
+- Analysis, Scenario, Ranking, Comparison, and Watchlist continue to use live recalculation behavior rather than snapshot-only reads.
 
 ### Finance Profile
 

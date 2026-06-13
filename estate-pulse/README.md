@@ -1,6 +1,6 @@
 # Estate Pulse MVP
 
-Estate Pulse is a personal real-estate investment analysis MVP built with Python, Streamlit, and SQLite.
+Estate Pulse is a personal real-estate investment analysis MVP built with Python and Streamlit, with SQLite as the default local database and optional PostgreSQL runtime support.
 
 The current MVP helps compare listings, analyze purchase affordability, manage real-estate policy/rule data, and review regional regulation context.
 
@@ -45,7 +45,7 @@ estate-pulse/
 ## Key Modules
 
 - `config/settings.py`: environment-driven configuration
-- `modules/repositories/database.py`: SQLite connection helpers and schema initialization
+- `modules/repositories/database.py`: SQLite/PostgreSQL connection helpers and schema initialization
 - `modules/repositories/complex_repository.py`: CRUD for `apartment_complex`
 - `modules/repositories/listing_repository.py`: CRUD for `manual_listing`
 - `modules/repositories/finance_profile_repository.py`: CRUD for `user_finance_profile`
@@ -75,7 +75,7 @@ Copy-Item .env.example .env
 .venv\Scripts\python -m streamlit run app.py
 ```
 
-The app creates `data/app.db` automatically on first run.
+If `DATABASE_URL` is not set, the app creates and uses `data/app.db` automatically on first run.
 
 ## Local PostgreSQL
 
@@ -84,10 +84,14 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install_postgres_windows.ps1
 ```
 
 ```powershell
+$env:DATABASE_URL="postgresql://estate:estate@localhost:5432/estate_pulse"
+$env:TEST_DATABASE_URL="postgresql://estate:estate@localhost:5432/estate_pulse_test"
 powershell -ExecutionPolicy Bypass -File .\scripts\init_postgres.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\run_postgres_smoke.ps1
 .\.venv\Scripts\python -m streamlit run app.py
 ```
+
+Leave `DATABASE_URL` unset to keep the default SQLite development path. When `DATABASE_URL` is set, the app connects to PostgreSQL instead. `TEST_DATABASE_URL` is used by the PostgreSQL smoke test and should point to the separate `estate_pulse_test` database.
 
 The Windows install/init flow creates the `estate` role, the `estate_pulse` and `estate_pulse_test` databases, and applies `migrations/postgres/0001_initial_schema.sql` to both databases.
 

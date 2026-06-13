@@ -123,12 +123,16 @@ SQLite DB files, including `data/app.db`, must not be edited directly. Schema co
 - Do not refactor unrelated files.
 - Do not change DB schema unless the task explicitly requires it.
 - Do not update README/docs unless the user explicitly requests documentation updates.
+- Preserve SQLite fallback behavior when making DB-related changes unless the task explicitly says otherwise.
 - Do not implement external API integration unless explicitly requested.
 - Do not implement private real-estate platform scraping.
 - Do not implement bot detection bypass, session rotation, or CAPTCHA bypass.
 - Do not write SQL directly in Streamlit UI code.
 - Keep UI, service orchestration, repository access, and analyzer calculation logic separated.
 - Preserve future FastAPI + PostgreSQL migration paths.
+- Use the PostgreSQL helper scripts under `scripts/` for local install, initialization, and smoke validation instead of ad hoc commands.
+- Do not modify `.venv/`.
+- When DB schema or runtime behavior changes, also review whether `README.md` and `docs/ARCHITECTURE.md` need small accuracy updates.
 
 ### Current Architecture Expectations
 
@@ -209,6 +213,8 @@ $env:PYTHONDONTWRITEBYTECODE='1'
 ```
 
 Using `PYTHONDONTWRITEBYTECODE=1` and `-B` reduces `__pycache__` and `*.pyc` changes.
+
+PostgreSQL smoke tests should run only against a dedicated `TEST_DATABASE_URL` that points to a `_test` database.
 
 ### Documentation Rules
 

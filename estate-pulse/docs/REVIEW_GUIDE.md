@@ -69,6 +69,12 @@ Estate Pulse 기능 개발 전 Product Owner, Architecture, Documentation 관점
 - 금액은 원 단위 integer 저장 원칙을 유지하는가?
 - 날짜는 ISO format 문자열 또는 datetime 기준을 유지하는가?
 
+Additional DB review checks:
+
+- SQLite fallback remains available when PostgreSQL runtime support is added or changed.
+- PostgreSQL smoke coverage exists and uses a dedicated `TEST_DATABASE_URL` test database.
+- Analysis history reads are snapshot-first, and legacy rows still have a safe fallback path.
+
 ## Domain Boundary Checklist
 
 Estate Pulse의 정책, 규제, 계산 도메인이 섞이지 않도록 확인한다.
