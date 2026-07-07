@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from modules.repositories.database import build_deal_date_sql, execute, execute_many, fetch_all
+from modules.repositories.database import (
+    build_deal_date_sql,
+    execute,
+    execute_many,
+    fetch_all,
+    fetch_one,
+)
 
 
 class SaleTransactionRepository:
@@ -79,6 +85,39 @@ class SaleTransactionRepository:
             f"DELETE FROM sale_transaction WHERE complex_id IN ({placeholders})",
             tuple(complex_ids),
         )
+
+    def delete_by_complex_and_date_range(
+        self,
+        *,
+        complex_id: int,
+        start_date: str,
+        end_date: str,
+    ) -> int:
+        deal_date_sql = build_deal_date_sql(self.database_path)
+        row = fetch_one(
+            self.database_path,
+            f"""
+            SELECT COUNT(*) AS transaction_count
+            FROM sale_transaction
+            WHERE complex_id = ?
+              AND {deal_date_sql} BETWEEN ? AND ?
+            """,
+            (complex_id, start_date, end_date),
+        )
+        delete_count = int((row or {}).get("transaction_count") or 0)
+        if delete_count <= 0:
+            return 0
+
+        execute(
+            self.database_path,
+            f"""
+            DELETE FROM sale_transaction
+            WHERE complex_id = ?
+              AND {deal_date_sql} BETWEEN ? AND ?
+            """,
+            (complex_id, start_date, end_date),
+        )
+        return delete_count
 
     def list_all(self) -> list[dict]:
         deal_date_sql = build_deal_date_sql(self.database_path)

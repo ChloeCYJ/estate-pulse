@@ -25,3 +25,36 @@ Analysis Result에서 최근 평균가, 1년 최고가를 넣고 분석 실행
 #postgresql 추가
 $env:DATABASE_URL="postgresql://estate:estate@localhost:5432/estate_pulse"
 .\.venv\Scripts\python -m streamlit run app.py
+
+#API Key추가(국토부)
+$env:MOLIT_SERVICE_KEY="발급받은_디코딩_인증키"
+$env:DATABASE_URL="postgresql://estate:estate@localhost:5432/estate_pulse"
+.\.venv\Scripts\python -m streamlit run app.py
+
+
+국토교통부_아파트 매매 실거래가 자료 상세설명
+서비스유형	REST
+End Point	https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade
+API 환경 또는 API 호출 조건에 따라 인증키가 적용되는 방식이 다를 수 있습니다.
+포털에서 제공되는 Encoding/Decoding 된 인증키를 적용하면서 구동되는 키를 사용하시기 바랍니다.
+* 향후 포털에서 더 명확한 정보를 제공하기 위해 노력하겠습니다.
+일반 인증키	
+2e583349aacbfbdd9c89528d9267fb75656eaa224bdc1b97b7e6d58147a04cd7
+
+
+데이터명	국토교통부_공동주택 단지 목록제공 서비스 상세설명
+서비스유형	REST
+데이터포맷	JSON
+End Point	https://apis.data.go.kr/1613000/AptListService3
+API 환경 또는 API 호출 조건에 따라 인증키가 적용되는 방식이 다를 수 있습니다.
+포털에서 제공되는 Encoding/Decoding 된 인증키를 적용하면서 구동되는 키를 사용하시기 바랍니다.
+* 향후 포털에서 더 명확한 정보를 제공하기 위해 노력하겠습니다.
+일반 인증키	
+2e583349aacbfbdd9c89528d9267fb75656eaa224bdc1b97b7e6d58147a04cd7
+
+
+$env:MOLIT_SERVICE_KEY="2e583349aacbfbdd9c89528d9267fb75656eaa224bdc1b97b7e6d58147a04cd7"
+$env:DATABASE_URL="postgresql://estate:estate@localhost:5432/estate_pulse"
+.\.venv\Scripts\python -m streamlit run app.py
+
+1120011200	서울특별시 성동구 금호동4가

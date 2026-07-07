@@ -33,6 +33,9 @@ SCHEMA_STATEMENTS = [
         sigungu TEXT,
         dong TEXT,
         address TEXT,
+        molit_lawd_cd TEXT,
+        molit_apt_name TEXT,
+        molit_umd_name TEXT,
         build_year INTEGER,
         household_count INTEGER,
         lat REAL,
@@ -302,6 +305,7 @@ def initialize_database(database_path: Path | str) -> None:
         if is_postgres_target(database_path):
             for statement in _load_postgres_schema_statements():
                 connection.execute(statement)
+            _ensure_postgres_apartment_complex_columns(connection)
             connection.commit()
             return
 
@@ -453,8 +457,20 @@ def _ensure_apartment_complex_columns(connection: sqlite3.Connection) -> None:
     existing_columns = {
         row["name"] for row in connection.execute("PRAGMA table_info(apartment_complex)").fetchall()
     }
+    if "molit_lawd_cd" not in existing_columns:
+        connection.execute("ALTER TABLE apartment_complex ADD COLUMN molit_lawd_cd TEXT")
+    if "molit_apt_name" not in existing_columns:
+        connection.execute("ALTER TABLE apartment_complex ADD COLUMN molit_apt_name TEXT")
+    if "molit_umd_name" not in existing_columns:
+        connection.execute("ALTER TABLE apartment_complex ADD COLUMN molit_umd_name TEXT")
     if "complex_grade" not in existing_columns:
         connection.execute("ALTER TABLE apartment_complex ADD COLUMN complex_grade TEXT")
+
+
+def _ensure_postgres_apartment_complex_columns(connection: Any) -> None:
+    connection.execute("ALTER TABLE apartment_complex ADD COLUMN IF NOT EXISTS molit_lawd_cd TEXT")
+    connection.execute("ALTER TABLE apartment_complex ADD COLUMN IF NOT EXISTS molit_apt_name TEXT")
+    connection.execute("ALTER TABLE apartment_complex ADD COLUMN IF NOT EXISTS molit_umd_name TEXT")
 
 
 def _prepare_query(database_path: Path | str, query: str) -> str:

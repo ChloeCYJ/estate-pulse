@@ -3,6 +3,7 @@ from __future__ import annotations
 import streamlit as st
 
 from config.settings import get_settings
+from modules.collectors.molit_sale_collector import MolitSaleCollector
 from modules.repositories.analysis_repository import AnalysisRepository
 from modules.repositories.complex_repository import ApartmentComplexRepository
 from modules.repositories.database import initialize_database
@@ -17,7 +18,9 @@ from modules.repositories.rule_candidate_repository import RuleCandidateReposito
 from modules.repositories.sale_transaction_repository import SaleTransactionRepository
 from modules.repositories.watchlist_repository import WatchlistRepository
 from modules.services.analysis_service import AnalysisService
+from modules.services.lawd_code_service import LawdCodeService
 from modules.services.market_scoring_service import MarketScoringService
+from modules.services.molit_sale_import_service import MolitSaleImportService
 from modules.services.opportunity_service import OpportunityService
 from modules.services.policy_event_service import PolicyEventService
 from modules.services.policy_import_service import PolicyImportService
@@ -66,10 +69,17 @@ def main() -> None:
     policy_event_service = PolicyEventService(
         policy_event_repository=policy_event_repository,
     )
+    lawd_code_service = LawdCodeService()
+    molit_sale_collector = MolitSaleCollector(settings.molit_service_key)
     market_scoring_service = MarketScoringService(
         complex_repository=complex_repository,
         sale_transaction_repository=sale_transaction_repository,
         rent_transaction_repository=rent_transaction_repository,
+    )
+    molit_sale_import_service = MolitSaleImportService(
+        complex_repository=complex_repository,
+        sale_transaction_repository=sale_transaction_repository,
+        molit_sale_collector=molit_sale_collector,
     )
     analysis_service = AnalysisService(
         settings=settings,
@@ -151,6 +161,8 @@ def main() -> None:
             rule_admin_service=rule_admin_service,
             policy_import_service=policy_import_service,
             complex_repository=complex_repository,
+            sale_transaction_import_service=molit_sale_import_service,
+            lawd_code_service=lawd_code_service,
         ),
     }
 

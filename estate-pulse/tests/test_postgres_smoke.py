@@ -140,6 +140,56 @@ class PostgreSQLSmokeTests(unittest.TestCase):
         self.assertEqual(latest["expected_jeonse_price"], 540_000_000)
         self.assertEqual(latest["complex_name"], "Postgres Complex")
 
+    def test_complex_mapping_round_trip(self) -> None:
+        complex_id = self.complex_repository.create(
+            name="Mapped Postgres Complex",
+            sido="Seoul",
+            sigungu="Seongdong-gu",
+            dong="Geumho-dong 4(sa)-ga",
+            address="Seoul Seongdong-gu Geumho-dong 4(sa)-ga",
+            build_year=2020,
+            household_count=800,
+            lat=None,
+            lng=None,
+            molit_lawd_cd="11200",
+            molit_apt_name="Seoul Forest 1 Prugio",
+            molit_umd_name="Geumho-dong 4(sa)-ga",
+            memo=None,
+        )
+
+        created = self.complex_repository.get(complex_id)
+        self.assertIsNotNone(created)
+        assert created is not None
+        self.assertEqual(created["molit_lawd_cd"], "11200")
+        self.assertEqual(created["molit_apt_name"], "Seoul Forest 1 Prugio")
+        self.assertEqual(created["molit_umd_name"], "Geumho-dong 4(sa)-ga")
+
+        self.complex_repository.update(
+            complex_id,
+            name="Mapped Postgres Complex",
+            sido="Seoul",
+            sigungu="Seongdong-gu",
+            dong="Geumho-dong 4(sa)-ga",
+            address="Seoul Seongdong-gu Geumho-dong 4(sa)-ga",
+            build_year=2021,
+            household_count=820,
+            lat=None,
+            lng=None,
+            molit_lawd_cd="11215",
+            molit_apt_name="Seoul Forest Phase 1 Prugio",
+            molit_umd_name="Geumho-dong 4(sa)-ga",
+            memo="updated",
+        )
+
+        updated = self.complex_repository.get(complex_id)
+        self.assertIsNotNone(updated)
+        assert updated is not None
+        self.assertEqual(updated["molit_lawd_cd"], "11215")
+        self.assertEqual(updated["molit_apt_name"], "Seoul Forest Phase 1 Prugio")
+        self.assertEqual(updated["molit_umd_name"], "Geumho-dong 4(sa)-ga")
+        self.assertEqual(updated["build_year"], 2021)
+        self.assertEqual(updated["memo"], "updated")
+
     def _sale_tx(self, complex_id: int, deal_date: str, price: int) -> dict:
         year, month, day = (int(part) for part in deal_date.split("-"))
         return {

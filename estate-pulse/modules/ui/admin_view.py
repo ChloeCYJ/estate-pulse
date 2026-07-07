@@ -6,6 +6,7 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 
+from modules.services.molit_sale_import_service import MolitSaleImportNoMatchError
 from modules.services.policy_import_service import (
     CANDIDATE_STATUS_APPLIED,
     CANDIDATE_STATUS_APPROVED,
@@ -20,7 +21,14 @@ GROUP_ORDER = ("POLICY_EVENT", "REGION_POLICY", "LOAN", "TAX", "BROKERAGE", "UNK
 DRAFT_KEY = "policy_import_draft_sections"
 
 
-def render_admin_page(*, rule_admin_service, policy_import_service, complex_repository=None) -> None:
+def render_admin_page(
+    *,
+    rule_admin_service,
+    policy_import_service,
+    complex_repository=None,
+    sale_transaction_import_service=None,
+    lawd_code_service=None,
+) -> None:
     st.title("관리자")
     st.caption("정책 운영, 규칙 관리, 정책 수집/승인 업무를 처리합니다.")
 
@@ -51,7 +59,15 @@ def render_admin_page(*, rule_admin_service, policy_import_service, complex_repo
             _render_rule_table("중개보수 규칙", rule_admin_service.list_brokerage_rules(), "brokerage")
 
     with import_tab:
-        _render_policy_import_tab(policy_import_service=policy_import_service)
+        public_data_tab, policy_import_inner_tab = st.tabs(["실거래가 가져오기", "정책 수집/승인"])
+        with public_data_tab:
+            _render_molit_sale_import_tab(
+                complex_repository=complex_repository,
+                sale_transaction_import_service=sale_transaction_import_service,
+                lawd_code_service=lawd_code_service,
+            )
+        with policy_import_inner_tab:
+            _render_policy_import_tab(policy_import_service=policy_import_service)
 
 
 def _render_rule_table(title: str, rows: list[dict[str, str]], kind: str) -> None:
@@ -1376,6 +1392,111 @@ def _render_region_policy_tab(*, rule_admin_service, complex_repository=None) ->
             st.rerun()
         except Exception as exc:
             st.error(str(exc))
+
+
+def _render_molit_sale_import_tab(
+    *,
+    complex_repository,
+    sale_transaction_import_service,
+    lawd_code_service=None,
+) -> None:
+    st.subheader("국토부 매매 실거래가 가져오기")
+    st.caption("단지 1개 기준 최근 12개월 매매 실거래가를 delete-and-replace 방식으로 다시 적재합니다.")
+
+    if complex_repository is None or sale_transaction_import_service is None:
+        st.info("실거래가 import 서비스가 아직 연결되지 않았습니다.")
+        return
+
+    collector = getattr(sale_transaction_import_service, "molit_sale_collector", None)
+    if not getattr(collector, "service_key", None):
+        st.warning("MOLIT_SERVICE_KEY가 설정되지 않아 실제 호출은 실패합니다.")
+
+    complexes = complex_repository.list_all()
+    if not complexes:
+        st.info("먼저 단지를 등록한 뒤 import를 실행해 주세요.")
+        return
+
+    options = {
+        (
+            f"#{item['id']} | {item['name']} | "
+            f"{str(item.get('sido') or '-')} {str(item.get('sigungu') or '-')} {str(item.get('dong') or '-')}"
+        ): item
+        for item in complexes
+    }
+
+    selected_label = st.selectbox("단지 선택", list(options.keys()))
+    selected_complex = options[selected_label]
+
+    with st.form("molit_sale_import_form"):
+        lawd_code = st.text_input(
+            "LAWD_CD (5자리)",
+            value=_default_molit_lawd_code(selected_complex, lawd_code_service=lawd_code_service),
+            help="국토부 실거래가 API 조회에 사용하는 5자리 법정동 코드입니다.",
+        )
+        submitted = st.form_submit_button("최근 12개월 매매 실거래가 가져오기")
+
+    st.caption("매칭 기준: 저장된 MOLIT aptNm/umdNm 우선, 없으면 공백/일부 특수문자 정규화 후 aptNm + dong exact 일치")
+    st.caption("범위: 단지 1개 / 최근 12개월 / 매매만 / 수동 실행")
+
+    if not submitted:
+        return
+
+    try:
+        result = sale_transaction_import_service.import_recent_transactions(
+            complex_id=int(selected_complex["id"]),
+            lawd_code=lawd_code,
+            months=12,
+        )
+    except MolitSaleImportNoMatchError as exc:
+        st.error(exc.message)
+        _render_molit_sale_candidates(exc.candidates)
+        return
+    except Exception as exc:
+        st.error(str(exc))
+        return
+
+    st.success(
+        f"{result['complex_name']} 매매 실거래가 {result['imported_row_count']}건을 적재했습니다."
+    )
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("적재 건수", str(result["imported_row_count"]))
+    metric_cols[1].metric("삭제 건수", str(result["deleted_row_count"]))
+    metric_cols[2].metric("수집 원본", str(result["raw_row_count"]))
+    metric_cols[3].metric("스킵 건수", str(result["skipped_row_count"]))
+    st.caption(
+        f"조회 기간: {result['window_start_date']} ~ {result['window_end_date']} / "
+        f"조회 월: {', '.join(result['year_months'])}"
+    )
+
+
+def _render_molit_sale_candidates(candidates: list[dict]) -> None:
+    if not candidates:
+        return
+    st.write("매칭 후보")
+    for line in _format_molit_sale_candidates(candidates):
+        st.write(line)
+
+
+def _format_molit_sale_candidates(candidates: list[dict]) -> list[str]:
+    return [
+        f"- aptNm={item.get('aptNm') or '-'}, umdNm={item.get('umdNm') or '-'}, count={int(item.get('count') or 0)}"
+        for item in candidates
+    ]
+
+
+def _default_molit_lawd_code(complex_row: dict, *, lawd_code_service=None) -> str:
+    if lawd_code_service is not None:
+        try:
+            resolved = lawd_code_service.resolve_lawd_code(
+                sido=complex_row.get("sido"),
+                sigungu=complex_row.get("sigungu"),
+                dong=complex_row.get("dong"),
+            )
+        except Exception:
+            resolved = None
+        if resolved:
+            return resolved
+    return str(complex_row.get("molit_lawd_cd") or "").strip()
 
 
 def _render_policy_import_tab(*, policy_import_service) -> None:

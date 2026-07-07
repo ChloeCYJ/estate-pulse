@@ -7,7 +7,7 @@ from modules.utils.date_utils import utc_now_iso
 
 
 class ApartmentComplexRepository:
-    def __init__(self, database_path: Path) -> None:
+    def __init__(self, database_path: Path | str) -> None:
         self.database_path = database_path
 
     def create(
@@ -22,6 +22,9 @@ class ApartmentComplexRepository:
         household_count: int | None,
         lat: float | None,
         lng: float | None,
+        molit_lawd_cd: str | None = None,
+        molit_apt_name: str | None = None,
+        molit_umd_name: str | None = None,
         complex_grade: str | None = None,
         memo: str | None = None,
     ) -> int:
@@ -29,10 +32,11 @@ class ApartmentComplexRepository:
             self.database_path,
             """
             INSERT INTO apartment_complex (
-                name, sido, sigungu, dong, address, build_year,
-                household_count, lat, lng, complex_grade, memo, created_at
+                name, sido, sigungu, dong, address, molit_lawd_cd,
+                molit_apt_name, molit_umd_name, build_year, household_count,
+                lat, lng, complex_grade, memo, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 name,
@@ -40,6 +44,9 @@ class ApartmentComplexRepository:
                 sigungu,
                 dong,
                 address,
+                molit_lawd_cd,
+                molit_apt_name,
+                molit_umd_name,
                 build_year,
                 household_count,
                 lat,
@@ -84,6 +91,9 @@ class ApartmentComplexRepository:
         household_count: int | None,
         lat: float | None,
         lng: float | None,
+        molit_lawd_cd: str | None = None,
+        molit_apt_name: str | None = None,
+        molit_umd_name: str | None = None,
         complex_grade: str | None = None,
         memo: str | None = None,
     ) -> None:
@@ -97,6 +107,9 @@ class ApartmentComplexRepository:
                 sigungu = ?,
                 dong = ?,
                 address = ?,
+                molit_lawd_cd = ?,
+                molit_apt_name = ?,
+                molit_umd_name = ?,
                 build_year = ?,
                 household_count = ?,
                 lat = ?,
@@ -111,6 +124,9 @@ class ApartmentComplexRepository:
                 sigungu,
                 dong,
                 address,
+                molit_lawd_cd,
+                molit_apt_name,
+                molit_umd_name,
                 build_year,
                 household_count,
                 lat,
