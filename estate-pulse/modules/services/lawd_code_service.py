@@ -60,6 +60,34 @@ class LawdCodeService:
                 return row.code[:5]
         return None
 
+    def list_search_regions(self) -> list[dict[str, str | None]]:
+        regions: list[dict[str, str | None]] = []
+        seen_codes: set[str] = set()
+        for row in self._load_rows():
+            if _normalize_region_text(row.dong):
+                continue
+            if not row.sigungu and not _is_top_level_search_region(row.sido):
+                continue
+            lawd_code = row.code[:5]
+            if lawd_code in seen_codes:
+                continue
+            seen_codes.add(lawd_code)
+            regions.append(
+                {
+                    "lawd_code": lawd_code,
+                    "sido": row.sido,
+                    "sigungu": row.sigungu,
+                }
+            )
+        regions.sort(
+            key=lambda item: (
+                _normalize_sido_text(item["sido"]),
+                _normalize_region_text(item["sigungu"]),
+                item["lawd_code"],
+            )
+        )
+        return regions
+
     def _load_rows(self) -> list[_LawdCodeRow]:
         if self._rows is not None:
             return self._rows
@@ -135,6 +163,10 @@ def _split_lawd_name(raw_name: str) -> tuple[str, str | None, str | None]:
 
 def _looks_like_sigungu(value: str) -> bool:
     return value.endswith(("\uc2dc", "\uad70", "\uad6c"))
+
+
+def _is_top_level_search_region(sido: str) -> bool:
+    return sido.endswith("\ud2b9\ubcc4\uc790\uce58\uc2dc")
 
 
 def _normalize_region_text(value: str | None) -> str:

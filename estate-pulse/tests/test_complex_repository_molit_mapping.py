@@ -68,6 +68,29 @@ class ApartmentComplexRepositoryMolitMappingTests(unittest.TestCase):
         self.assertEqual(updated["build_year"], 2021)
         self.assertEqual(updated["memo"], "updated")
 
+    def test_create_without_molit_mapping_fields_still_works(self) -> None:
+        complex_id = self.repository.create(
+            name="Manual Complex",
+            sido="Seoul",
+            sigungu="Seongdong-gu",
+            dong="Geumho-dong 4(sa)-ga",
+            address="Seoul Seongdong-gu Geumho-dong 4(sa)-ga 100",
+            build_year=None,
+            household_count=None,
+            lat=None,
+            lng=None,
+            memo="legacy manual registration",
+        )
+
+        created = self.repository.get(complex_id)
+        self.assertIsNotNone(created)
+        assert created is not None
+        self.assertEqual(created["name"], "Manual Complex")
+        self.assertIsNone(created["molit_lawd_cd"])
+        self.assertIsNone(created["molit_apt_name"])
+        self.assertIsNone(created["molit_umd_name"])
+        self.assertEqual(created["memo"], "legacy manual registration")
+
 
 if __name__ == "__main__":
     unittest.main()

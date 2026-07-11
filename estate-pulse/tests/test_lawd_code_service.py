@@ -112,6 +112,33 @@ class LawdCodeServiceTests(unittest.TestCase):
             "26350",
         )
 
+    def test_list_search_regions_returns_sigungu_codes_and_special_city_top_level(self) -> None:
+        self.assertEqual(
+            self.service.list_search_regions(),
+            [
+                {
+                    "lawd_code": "26350",
+                    "sido": "\ubd80\uc0b0\uad11\uc5ed\uc2dc",
+                    "sigungu": "\ud574\uc6b4\ub300\uad6c",
+                },
+                {
+                    "lawd_code": "11680",
+                    "sido": "\uc11c\uc6b8\ud2b9\ubcc4\uc2dc",
+                    "sigungu": "\uac15\ub0a8\uad6c",
+                },
+                {
+                    "lawd_code": "11200",
+                    "sido": "\uc11c\uc6b8\ud2b9\ubcc4\uc2dc",
+                    "sigungu": "\uc131\ub3d9\uad6c",
+                },
+                {
+                    "lawd_code": "36110",
+                    "sido": "\uc138\uc885\ud2b9\ubcc4\uc790\uce58\uc2dc",
+                    "sigungu": None,
+                },
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

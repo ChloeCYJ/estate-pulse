@@ -20,6 +20,7 @@ from modules.repositories.watchlist_repository import WatchlistRepository
 from modules.services.analysis_service import AnalysisService
 from modules.services.lawd_code_service import LawdCodeService
 from modules.services.market_scoring_service import MarketScoringService
+from modules.services.molit_complex_search_service import MolitComplexSearchService
 from modules.services.molit_sale_import_service import MolitSaleImportService
 from modules.services.opportunity_service import OpportunityService
 from modules.services.policy_event_service import PolicyEventService
@@ -71,6 +72,11 @@ def main() -> None:
     )
     lawd_code_service = LawdCodeService()
     molit_sale_collector = MolitSaleCollector(settings.molit_service_key)
+    molit_complex_search_service = MolitComplexSearchService(
+        complex_repository=complex_repository,
+        molit_sale_collector=molit_sale_collector,
+        lawd_code_service=lawd_code_service,
+    )
     market_scoring_service = MarketScoringService(
         complex_repository=complex_repository,
         sale_transaction_repository=sale_transaction_repository,
@@ -124,7 +130,10 @@ def main() -> None:
             analysis_repository=analysis_repository,
             policy_event_service=policy_event_service,
         ),
-        "단지": lambda: render_complex_page(complex_repository),
+        "단지": lambda: render_complex_page(
+            complex_repository,
+            molit_complex_search_service=molit_complex_search_service,
+        ),
         "매물": lambda: render_listing_page(
             complex_repository=complex_repository,
             listing_repository=listing_repository,
