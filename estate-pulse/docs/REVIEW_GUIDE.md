@@ -9,6 +9,8 @@ Estate Pulse 기능 개발 전 Product Owner, Architecture, Documentation 관점
 - UI, Service, Repository, Analyzer 경계가 유지되는지
 - 정책, 규제, 계산 규칙의 의미가 섞이지 않는지
 - 문서가 실제 구현 상태와 다르게 작성되지 않는지
+- 최소 변경으로 해결 가능한지
+- 기존 Repository, Service, Analyzer, Collector, UI 구현을 먼저 재사용할 수 있는지
 
 ## When To Use
 
@@ -34,6 +36,8 @@ Estate Pulse 기능 개발 전 Product Owner, Architecture, Documentation 관점
 - 관련 Entity, Repository, Service, Analyzer, UI 구현
 - 관련 테스트
 
+가능하면 현재 상태를 `Already Implemented / Partially Implemented / Missing`으로 나누고, 그 기준으로 최소 변경 범위를 먼저 정리한다.
+
 ## Product Owner Review Checklist
 
 사용자 가치와 제품 동작을 확인한다.
@@ -57,6 +61,7 @@ Estate Pulse 기능 개발 전 Product Owner, Architecture, Documentation 관점
 
 - 기존 구현을 먼저 확인했는가?
 - 이미 유사 기능이 있으면 중복 구현하지 않고 재사용하는가?
+- 변경 범위가 최소화되고 국소화되어 있는가?
 - UI 코드에 SQL 또는 계산 로직이 들어가지 않는가?
 - DB 접근은 Repository에, 업무 흐름은 Service에, 계산은 Analyzer 또는 계산 모듈에 위치하는가?
 - DB 스키마 변경이 꼭 필요한가?
@@ -66,6 +71,7 @@ Estate Pulse 기능 개발 전 Product Owner, Architecture, Documentation 관점
 - 기존 분석 엔진, 투자 점수, 정책 파서 등 요청 범위 밖의 로직을 건드리지 않는가?
 - 테스트 가능한 단위로 변경 범위를 나눴는가?
 - 기존 테스트가 깨질 가능성이 있는지 확인했는가?
+- Repository, Service, Analyzer, import, matching, validation 변경이면 `unittest` 추가/수정 계획이 있는가?
 - 금액은 원 단위 integer 저장 원칙을 유지하는가?
 - 날짜는 ISO format 문자열 또는 datetime 기준을 유지하는가?
 
@@ -74,6 +80,14 @@ Additional DB review checks:
 - SQLite fallback remains available when PostgreSQL runtime support is added or changed.
 - PostgreSQL smoke coverage exists and uses a dedicated `TEST_DATABASE_URL` test database.
 - Analysis history reads are snapshot-first, and legacy rows still have a safe fallback path.
+
+Additional complex/public-data review checks:
+
+- Complex registration work is still centered on `apartment_complex` and the existing Repository contract.
+- `LawdCodeService` is reused for `LAWD_CD` resolution instead of re-implementing regional text mapping.
+- Current MOLIT import scope, matching priority, and fallback behavior are reviewed before changing public-data logic.
+- Fast search UX work does not silently turn nationwide transaction scans into the long-term default architecture without explicit acceptance.
+- If proposing the preferred future flow, it is described as `Address Search -> LawdCodeService -> MOLIT mapping/import -> apartment_complex save` and is not documented as already complete unless implemented.
 
 ## Domain Boundary Checklist
 
@@ -101,6 +115,8 @@ Estate Pulse의 정책, 규제, 계산 도메인이 섞이지 않도록 확인�
 - 사용자 메뉴와 관리자 메뉴 설명이 현재 UI와 일치하는가?
 - 테스트 실행 방법이 현재 프로젝트 구조와 일치하는가?
 - 문서를 전체 덮어쓰지 않고 필요한 부분만 최소 수정하는가?
+- 다른 문서에 이미 있는 규칙을 그대로 중복 추가하지 않았는가?
+- 문서별 책임이 명확하며, Codex가 다음 작업에서 같은 긴 지시를 다시 요구하지 않아도 되는가?
 
 ## Decision Criteria
 

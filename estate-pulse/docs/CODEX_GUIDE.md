@@ -64,10 +64,12 @@ This section reflects the current Estate Pulse implementation and should be foll
 
 - Read `AGENTS.md`, `README.md`, `docs/ARCHITECTURE.md`, `docs/CODEX_GUIDE.md`, and `docs/REVIEW_GUIDE.md`
 - Review existing implementation first
+- Classify the current state as `Already Implemented / Partially Implemented / Missing` before deciding the smallest safe change scope
 - Avoid duplicate implementation
 - Keep changes minimal
 - Do not touch protected paths
 - Report changed files, tests, and known limitations
+- Follow documented project rules directly instead of restating the same long instruction set back to the user
 
 ## Token Usage Mode
 
@@ -121,9 +123,11 @@ SQLite DB files, including `data/app.db`, must not be edited directly. Schema co
 
 - Keep changes minimal and localized.
 - Do not refactor unrelated files.
+- Prefer extending existing Repository, Service, Analyzer, Collector, and UI modules before creating new structures.
 - Do not change DB schema unless the task explicitly requires it.
 - Do not update README/docs unless the user explicitly requests documentation updates.
 - Preserve SQLite fallback behavior when making DB-related changes unless the task explicitly says otherwise.
+- Preserve PostgreSQL runtime compatibility together with SQLite fallback unless the task explicitly changes that contract.
 - Do not implement external API integration unless explicitly requested.
 - Do not implement private real-estate platform scraping.
 - Do not implement bot detection bypass, session rotation, or CAPTCHA bypass.
@@ -142,6 +146,14 @@ SQLite DB files, including `data/app.db`, must not be edited directly. Schema co
 - UI modules handle Streamlit forms/rendering and call services/repositories.
 
 For feature development, first check whether the relevant Repository, Service, Analyzer, or UI module already exists. Extend existing modules where appropriate rather than creating parallel implementations.
+
+### Complex Registration And Public Data Guidance
+
+- `apartment_complex` is still the single persisted complex entity. Reuse its existing Repository contract and optional MOLIT mapping fields before introducing new persistence structures.
+- Reuse `LawdCodeService` for `LAWD_CD` resolution and alias normalization instead of re-implementing regional text mapping.
+- Manual MOLIT apartment sale import is currently limited to one complex, recent 12 months, delete-and-replace loading into `sale_transaction`, and existing `AnalysisService` / `MarketScoringService` reuse.
+- Keep current state and preferred future state separate in documentation and implementation notes. Do not describe fast address-search autocomplete as complete unless it is actually implemented.
+- For future registration UX work, prefer separating responsibilities as `Address Search -> LawdCodeService -> MOLIT mapping/import -> apartment_complex save` instead of using nationwide transaction scans as the default long-term search architecture.
 
 ### Current Feature Areas
 
@@ -216,6 +228,12 @@ Using `PYTHONDONTWRITEBYTECODE=1` and `-B` reduces `__pycache__` and `*.pyc` cha
 
 PostgreSQL smoke tests should run only against a dedicated `TEST_DATABASE_URL` that points to a `_test` database.
 
+### Test Expectations
+
+- Add or update focused `unittest` coverage when Repository, Service, Analyzer, import, matching, or validation behavior changes.
+- Prefer targeted test execution first. Run the full suite when the user explicitly requests it or when core shared logic changes broadly.
+- If a test is skipped because of environment limits such as PostgreSQL or API credentials, state that explicitly in the completion report.
+
 ### Documentation Rules
 
 - Do not overwrite documentation wholesale.
@@ -226,10 +244,16 @@ PostgreSQL smoke tests should run only against a dedicated `TEST_DATABASE_URL` t
 
 ### Completion Report
 
-When finishing a task, report:
+When the user does not provide a custom reporting format, use this default structure:
 
-- Files changed
-- Main implementation or documentation changes
-- Tests run and results, or why tests were not run
-- Known limitations
-- Suggested next step when useful
+- Current State
+- Implemented
+- Partially Implemented
+- Missing
+- Changed Files
+- Tests Executed
+- Known Limitations
+
+If the user provides a required heading set or output format, follow that format exactly instead of the default.
+
+Keep completion reports concise. Do not repeat project-wide rules that are already documented unless they are directly relevant to the specific task outcome.

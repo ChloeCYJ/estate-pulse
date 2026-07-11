@@ -20,7 +20,7 @@ The current build includes:
 - Admin pages grouped around policy operations, rule management, and policy review/approval
 - Loan rule admin support for current-rule query, Wizard-style multi-row registration, inline row editing, batch update, and batch deactivate
 
-External API integration is intentionally not implemented yet. Public collector modules exist as stubs only, and no private platform scraping is included.
+Public data integration is partial. The current build includes `LawdCodeService`, limited MOLIT apartment sale collection/import support, and related admin helpers, but rent import, nationwide automated collection, and private platform scraping are not implemented.
 
 ## Project Structure
 
@@ -95,6 +95,14 @@ Leave `DATABASE_URL` unset to keep the default SQLite development path. When `DA
 
 The Windows install/init flow creates the `estate` role, the `estate_pulse` and `estate_pulse_test` databases, and applies `migrations/postgres/0001_initial_schema.sql` to both databases.
 
+## Development Principles
+
+- Keep changes minimal and localized.
+- Reuse existing Repository, Service, Analyzer, Collector, and UI modules before introducing new structures.
+- Preserve the current layered boundary: UI -> Service -> Repository/Analyzer.
+- Keep SQLite fallback and PostgreSQL runtime support compatible together unless a task explicitly changes that contract.
+- Add or update focused `unittest` coverage when Repository, Service, Analyzer, import, or matching behavior changes.
+
 ## User Workflow
 
 1. Register one or more apartment complexes.
@@ -116,7 +124,7 @@ User menu:
 - `매물`
 - `자금`
 - `분석`
-- `관심단지`
+- `투자 후보`
 - `비교`
 - `랭킹`
 
@@ -126,12 +134,9 @@ Admin menu:
 
 Admin groups:
 
-- `정책 이벤트`
-- `대출 규칙`
-- `세금 규칙`
-- `중개보수 규칙`
-- `지역 규제 상태`
-- `정책 가져오기`
+- `정책 운영`
+- `규칙 관리`
+- `정책 수집/승인`
 
 Policy Event is currently treated as an admin CRUD/review feature, not as a standalone user-facing lookup page.
 
@@ -143,8 +148,8 @@ Current user-facing labels in the Streamlit UI are:
 - `자금`
 - `분석`
 - `투자 후보`
-- `매물 비교`
-- `투자 랭킹`
+- `비교`
+- `랭킹`
 - `관리자`
 
 The current admin page groups work into `정책 운영`, `규칙 관리`, and `정책 수집/승인`.
@@ -249,10 +254,13 @@ Run the basic analyzer test suite:
 ## Notes
 
 - Calculation defaults such as acquisition tax, brokerage fee, legal fee, and contingency rate are configurable through `.env`.
+- Apartment complex registration currently supports the existing manual flow plus optional MOLIT mapping fields on `apartment_complex`. Fast address-search autocomplete is not implemented yet.
+- `LawdCodeService` expects a local `법정동코드 전체자료.txt` source file in the workspace root for `LAWD_CD` resolution used by admin import and related helpers.
 - The current analysis page can use transaction-derived market context and optional manual benchmark overrides.
 - Finance profile annual interest rate is entered as a percent value in the UI. For example, `4.0` means `4%`, and the app stores it as a ratio for calculation.
 - The finance profile UI warns when a rate input looks ambiguous because incorrect rate units can significantly distort DSR, expected loan amount, and monthly repayment.
 - The repository and service layers are separated so FastAPI and PostgreSQL can be added later without rewriting the UI logic.
+- Manual MOLIT apartment sale import currently targets one complex, the recent 12-month window, and delete-and-replace loading into `sale_transaction`.
 - SQLite schema migrations are handled by additive `ALTER TABLE` checks during initialization. Existing SQLite DB files are not edited directly by development tasks.
 - SQLite does not enforce enum/check constraints for policy types at the DB level. The current MVP relies on Service validation.
 - `REGULATED_AREA` is retained only for legacy compatibility. It is not shown as a new regional regulation selection; existing rows are not automatically converted.

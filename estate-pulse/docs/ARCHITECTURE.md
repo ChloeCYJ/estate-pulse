@@ -245,6 +245,14 @@ Estate Pulse currently uses a layered Streamlit architecture with SQLite fallbac
 
 The module boundaries are kept so a future FastAPI + broader PostgreSQL migration can reuse most Repository, Service, and Analyzer logic. The current PostgreSQL work is runtime support plus smoke verification, not a full migration framework.
 
+### Development Principles
+
+- Prefer minimal, localized changes over large rewrites.
+- Extend existing Repository, Service, Analyzer, Collector, and UI modules before introducing parallel structures.
+- Keep the layered contract stable: UI handles rendering/input, Services orchestrate workflows, Repositories own persistence, and Analyzers own deterministic calculations.
+- DB/runtime work should preserve both SQLite fallback and PostgreSQL runtime support unless the task explicitly changes that contract.
+- `unittest` remains the default test layer for Repository, Service, Analyzer, import, and matching behavior changes.
+
 ### Layer Responsibilities
 
 - Repositories own SQL and persistence details. They should not contain scoring or business decision logic.
@@ -261,6 +269,26 @@ The module boundaries are kept so a future FastAPI + broader PostgreSQL migratio
 - Policy/rule administration: policy imports, rule candidates, loan rules, tax rules, brokerage/cost rules, regional regulation rows, and review/approval/application workflows.
 - Policy Event: useful policy information that is not necessarily applied to calculation rules. It is currently an admin CRUD/review feature, not a standalone user lookup page.
 - Regional regulation: active region status rows in `region_policy_status`.
+
+### Source Of Truth
+
+- `apartment_complex` is the source of truth for persisted complex identity, user-facing address fields, and optional saved MOLIT mapping fields.
+- `manual_listing` is the source of truth for manually entered listing terms used by analysis.
+- `user_finance_profile` is the source of truth for saved user funding context, including manual LTV override settings when explicitly enabled.
+- `analysis_result` is the source of truth for saved analysis history snapshots and their stored benchmark/loan repayment values.
+- `sale_transaction` and `rent_transaction` are the source of truth for imported market transaction context used by scoring and benchmark resolution.
+- `region_policy_status`, `rule_candidate`, and related policy import tables remain the source of truth for active regulation/rule runtime context through existing Services.
+
+### Complex Registration And Public Data Flow
+
+- `apartment_complex` remains the primary persisted complex entity. It stores user-facing location fields plus optional MOLIT mapping fields: `molit_lawd_cd`, `molit_apt_name`, and `molit_umd_name`.
+- The current codebase still supports the legacy manual complex registration path. New helper flows should reuse the same `ApartmentComplexRepository` contract rather than create a separate complex storage path.
+- `LawdCodeService` is the reusable source for resolving 5-digit `LAWD_CD` values from `sido`, `sigungu`, and `dong`, including supported alias normalization such as `서울시 -> 서울특별시`.
+- Manual MOLIT apartment sale import currently writes only to `sale_transaction`. The supported scope is one complex, recent 12 months, and delete-and-replace loading.
+- MOLIT sale import matching prefers saved complex-level MOLIT mapping (`molit_lawd_cd`, `molit_apt_name`, `molit_umd_name`) and falls back to normalized `complex.name + dong` matching only when saved mapping is absent.
+- No-match handling returns candidate `aptNm/umdNm` pairs for operator review rather than switching to fuzzy matching.
+- `AnalysisService`, `MarketScoringService`, dashboard summaries, and other market-context features reuse imported `sale_transaction` rows through existing Repository and Service paths. No separate scoring-only ingestion path was introduced.
+- The current search-assisted registration helper is not a fast nationwide autocomplete architecture. For future UX work, the preferred direction is to keep responsibilities separated as `Address Search -> LawdCodeService -> MOLIT mapping/import -> apartment_complex save`, instead of treating nationwide MOLIT transaction scans as the long-term search source.
 
 ### Analysis History Snapshot Behavior
 
@@ -349,7 +377,7 @@ User menu:
 - 매물
 - 자금
 - 분석
-- 관심단지
+- 투자 후보
 - 비교
 - 랭킹
 
@@ -357,14 +385,13 @@ Admin menu:
 
 - 관리자
 
-Admin tabs:
+Admin groups:
 
-- 정책 이벤트
-- 대출 규칙
-- 세금 규칙
-- 중개보수 규칙
-- 지역 규제 상태
-- 정책 가져오기
+- 정책 운영
+- 규칙 관리
+- 정책 수집/승인
+
+Current nested admin tabs include Policy Event, Region Policy Status, Loan Rules, Tax Rules, Brokerage Rules, MOLIT sale import, and policy collection/review flows.
 
 ### SQLite Limitations And Migration Notes
 
