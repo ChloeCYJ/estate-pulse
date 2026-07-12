@@ -3,6 +3,7 @@ from __future__ import annotations
 import streamlit as st
 
 from config.settings import get_settings
+from modules.collectors.juso_address_client import JusoAddressClient
 from modules.collectors.molit_sale_collector import MolitSaleCollector
 from modules.repositories.analysis_repository import AnalysisRepository
 from modules.repositories.complex_repository import ApartmentComplexRepository
@@ -17,10 +18,11 @@ from modules.repositories.rent_transaction_repository import RentTransactionRepo
 from modules.repositories.rule_candidate_repository import RuleCandidateRepository
 from modules.repositories.sale_transaction_repository import SaleTransactionRepository
 from modules.repositories.watchlist_repository import WatchlistRepository
+from modules.services.address_search_service import AddressSearchService
 from modules.services.analysis_service import AnalysisService
+from modules.services.complex_registration_service import ComplexRegistrationService
 from modules.services.lawd_code_service import LawdCodeService
 from modules.services.market_scoring_service import MarketScoringService
-from modules.services.molit_complex_search_service import MolitComplexSearchService
 from modules.services.molit_sale_import_service import MolitSaleImportService
 from modules.services.opportunity_service import OpportunityService
 from modules.services.policy_event_service import PolicyEventService
@@ -71,12 +73,15 @@ def main() -> None:
         policy_event_repository=policy_event_repository,
     )
     lawd_code_service = LawdCodeService()
-    molit_sale_collector = MolitSaleCollector(settings.molit_service_key)
-    molit_complex_search_service = MolitComplexSearchService(
+    juso_address_client = JusoAddressClient(settings.juso_api_key)
+    address_search_service = AddressSearchService(
+        juso_address_client=juso_address_client,
+    )
+    complex_registration_service = ComplexRegistrationService(
         complex_repository=complex_repository,
-        molit_sale_collector=molit_sale_collector,
         lawd_code_service=lawd_code_service,
     )
+    molit_sale_collector = MolitSaleCollector(settings.molit_service_key)
     market_scoring_service = MarketScoringService(
         complex_repository=complex_repository,
         sale_transaction_repository=sale_transaction_repository,
@@ -132,7 +137,8 @@ def main() -> None:
         ),
         "단지": lambda: render_complex_page(
             complex_repository,
-            molit_complex_search_service=molit_complex_search_service,
+            address_search_service=address_search_service,
+            complex_registration_service=complex_registration_service,
         ),
         "매물": lambda: render_listing_page(
             complex_repository=complex_repository,

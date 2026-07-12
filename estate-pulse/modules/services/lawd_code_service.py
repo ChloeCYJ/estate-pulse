@@ -25,6 +25,14 @@ class LawdCodeService:
         sigungu: str | None,
         dong: str | None,
     ) -> str | None:
+        exact_matches = self.find_lawd_code_matches(
+            sido=sido,
+            sigungu=sigungu,
+            dong=dong,
+        )
+        if len(exact_matches) == 1:
+            return exact_matches[0][:5]
+
         normalized_sido = _normalize_sido_text(sido)
         normalized_sigungu = _normalize_region_text(sigungu)
         normalized_dong = _normalize_region_text(dong)
@@ -59,6 +67,29 @@ class LawdCodeService:
             ):
                 return row.code[:5]
         return None
+
+    def find_lawd_code_matches(
+        self,
+        *,
+        sido: str | None,
+        sigungu: str | None,
+        dong: str | None,
+    ) -> list[str]:
+        normalized_sido = _normalize_sido_text(sido)
+        normalized_sigungu = _normalize_region_text(sigungu)
+        normalized_dong = _normalize_region_text(dong)
+        if not normalized_sido or not normalized_dong:
+            return []
+
+        matches: list[str] = []
+        for row in self._load_rows():
+            if (
+                _normalize_sido_text(row.sido) == normalized_sido
+                and _normalize_region_text(row.sigungu) == normalized_sigungu
+                and _normalize_region_text(row.dong) == normalized_dong
+            ):
+                matches.append(row.code)
+        return matches
 
     def list_search_regions(self) -> list[dict[str, str | None]]:
         regions: list[dict[str, str | None]] = []

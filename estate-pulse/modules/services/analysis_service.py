@@ -121,6 +121,7 @@ class AnalysisService:
         resolved_buyer_type = _resolve_buyer_type(
             benchmark_buyer_type=benchmarks.buyer_type,
             finance_profile=finance_profile,
+            funding_mode=funding_mode,
         )
 
         stored_investment_type = (
@@ -711,12 +712,31 @@ def _resolve_buyer_type(
     *,
     benchmark_buyer_type: str | None,
     finance_profile: dict,
+    funding_mode: str,
 ) -> str:
     normalized_buyer_type = str(benchmark_buyer_type or "").strip().upper()
     if normalized_buyer_type in BUYER_TYPES:
         return normalized_buyer_type
-    derived_buyer_type = _derive_buyer_type_from_home_count(finance_profile.get("home_count"))
+    derived_buyer_type = _derive_buyer_type_from_home_count(
+        _effective_home_count_for_buyer_type(
+            home_count=finance_profile.get("home_count"),
+            funding_mode=funding_mode,
+        )
+    )
     return derived_buyer_type or "NO_HOME"
+
+
+def _effective_home_count_for_buyer_type(
+    *,
+    home_count: object,
+    funding_mode: str,
+) -> int | None:
+    if home_count in (None, ""):
+        return None
+    count = int(home_count)
+    if funding_mode == SELL_OWNED_REAL_ESTATE:
+        return max(count - 1, 0)
+    return count
 
 
 def _derive_buyer_type_from_home_count(home_count: object) -> str | None:

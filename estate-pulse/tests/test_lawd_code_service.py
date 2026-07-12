@@ -112,6 +112,16 @@ class LawdCodeServiceTests(unittest.TestCase):
             "26350",
         )
 
+    def test_find_lawd_code_matches_returns_exact_10_digit_matches(self) -> None:
+        self.assertEqual(
+            self.service.find_lawd_code_matches(
+                sido="\uc11c\uc6b8\uc2dc",
+                sigungu="\uc131\ub3d9\uad6c",
+                dong="\uae08\ud638\ub3d94\uac00",
+            ),
+            ["1120011300"],
+        )
+
     def test_list_search_regions_returns_sigungu_codes_and_special_city_top_level(self) -> None:
         self.assertEqual(
             self.service.list_search_regions(),

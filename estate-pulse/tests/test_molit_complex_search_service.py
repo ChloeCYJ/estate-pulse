@@ -108,6 +108,7 @@ class MolitComplexSearchServiceTests(unittest.TestCase):
         self.assertEqual(results[0]["lawd_cd"], "11200")
         self.assertEqual(results[0]["count"], 2)
         self.assertEqual(results[0]["deal_day"], 3)
+        self.assertEqual(results[0]["price"], 2_100_000_000)
         self.assertFalse(results[0]["is_registered"])
 
     def test_search_candidates_marks_existing_registered_complex(self) -> None:

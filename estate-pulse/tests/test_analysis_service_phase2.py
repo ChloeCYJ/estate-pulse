@@ -357,6 +357,42 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
         self.assertEqual(result["loan_terms"]["region_type"], "REGULATED")
         self.assertEqual(result["expected_loan_amount"], 270_000_000)
 
+    def test_region_policy_uses_api_mapped_full_address_against_short_sido_policy(self) -> None:
+        self.complex_repository.update(
+            self.complex_id,
+            name="Test Complex",
+            sido="서울특별시",
+            sigungu="서초구",
+            dong="반포동",
+            address="서울특별시 서초구 반포동",
+            build_year=2020,
+            household_count=None,
+            lat=None,
+            lng=None,
+            memo=None,
+        )
+        self.region_policy_service.create_region_policy_status(
+            region_level="SIDO",
+            sido="서울",
+            sigungu=None,
+            dong=None,
+            policy_type="REGULATED_AREA",
+            effective_from="2026-05-01",
+            effective_to=None,
+            notes="test",
+        )
+
+        result = self.analysis_service.run_analysis(
+            listing_id=self.listing_id,
+            finance_profile_id=self.profile_id,
+            benchmarks=BenchmarkInputs(reference_date=date(2026, 5, 27)),
+            save_result=False,
+        )
+
+        self.assertEqual(result["resolved_region_type"], "REGULATED")
+        self.assertEqual(result["region_policy_source"], "region_policy_status")
+        self.assertEqual(result["loan_terms"]["region_type"], "REGULATED")
+
     def test_specific_region_without_dedicated_rule_marks_regulated_fallback(self) -> None:
         complex_row = self.complex_repository.get(self.complex_id)
         self.region_policy_service.create_region_policy_status(

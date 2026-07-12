@@ -260,6 +260,53 @@ class RegionPolicyServiceTests(unittest.TestCase):
                 notes=None,
             )
 
+    def test_resolve_region_context_supports_short_and_full_sido_alias_matching(self) -> None:
+        self.service.create_region_policy_status(
+            region_level="SIDO",
+            sido="서울",
+            sigungu=None,
+            dong=None,
+            policy_type="REGULATED_AREA",
+            effective_from="2026-05-01",
+            effective_to=None,
+            notes=None,
+        )
+
+        result = self.service.resolve_region_context(
+            sido="서울특별시",
+            sigungu="성동구",
+            dong="금호동4가",
+            reference_date=date(2026, 5, 30),
+        )
+
+        self.assertEqual(result["region_type"], "REGULATED")
+        self.assertEqual(result["source"], "region_policy_status")
+        self.assertEqual(result["matched_loan_policy"]["policy_type"], "REGULATED_AREA")
+
+    def test_conflicting_region_policies_treat_short_and_full_sido_as_same_scope(self) -> None:
+        self.service.create_region_policy_status(
+            region_level="SIDO",
+            sido="서울",
+            sigungu=None,
+            dong=None,
+            policy_type="REGULATED_AREA",
+            effective_from="2026-05-01",
+            effective_to=None,
+            notes=None,
+        )
+
+        with self.assertRaisesRegex(ValueError, "non-regulated status cannot overlap"):
+            self.service.create_region_policy_status(
+                region_level="SIDO",
+                sido="서울특별시",
+                sigungu=None,
+                dong=None,
+                policy_type="NON_REGULATED_AREA",
+                effective_from="2026-05-01",
+                effective_to=None,
+                notes=None,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -19,6 +19,7 @@ from modules.utils.money_utils import format_compact_won, from_eok, to_eok
 
 GROUP_ORDER = ("POLICY_EVENT", "REGION_POLICY", "LOAN", "TAX", "BROKERAGE", "UNKNOWN")
 DRAFT_KEY = "policy_import_draft_sections"
+MOLIT_SALE_IMPORT_STATE_KEY = "molit_sale_import_state"
 
 
 def render_admin_page(
@@ -1438,7 +1439,23 @@ def _render_molit_sale_import_tab(
     st.caption("매칭 기준: 저장된 MOLIT aptNm/umdNm 우선, 없으면 공백/일부 특수문자 정규화 후 aptNm + dong exact 일치")
     st.caption("범위: 단지 1개 / 최근 12개월 / 매매만 / 수동 실행")
 
+    persisted_no_match_state = _get_molit_sale_import_state_for_complex(
+        st.session_state,
+        complex_id=int(selected_complex["id"]),
+    )
     if not submitted:
+        if persisted_no_match_state:
+            _render_molit_sale_no_match_state(
+                complex_repository=complex_repository,
+                sale_transaction_import_service=sale_transaction_import_service,
+                selected_complex=selected_complex,
+                lawd_code=str(persisted_no_match_state.get("lawd_code") or lawd_code or "").strip(),
+                message=str(
+                    persisted_no_match_state.get("message")
+                    or "No matching MOLIT sale transactions were found."
+                ),
+                candidates=list(persisted_no_match_state.get("candidates") or []),
+            )
         return
 
     try:
@@ -1448,8 +1465,21 @@ def _render_molit_sale_import_tab(
             months=12,
         )
     except MolitSaleImportNoMatchError as exc:
-        st.error(exc.message)
-        _render_molit_sale_candidates(exc.candidates)
+        _store_molit_sale_import_state(
+            st.session_state,
+            complex_id=int(selected_complex["id"]),
+            lawd_code=lawd_code,
+            message=exc.message,
+            candidates=exc.candidates,
+        )
+        _render_molit_sale_no_match_state(
+            complex_repository=complex_repository,
+            sale_transaction_import_service=sale_transaction_import_service,
+            selected_complex=selected_complex,
+            lawd_code=lawd_code,
+            message=exc.message,
+            candidates=exc.candidates,
+        )
         return
     except Exception as exc:
         st.error(str(exc))
@@ -1458,6 +1488,7 @@ def _render_molit_sale_import_tab(
     st.success(
         f"{result['complex_name']} 매매 실거래가 {result['imported_row_count']}건을 적재했습니다."
     )
+    _clear_molit_sale_import_state(st.session_state)
     metric_cols = st.columns(4)
     metric_cols[0].metric("적재 건수", str(result["imported_row_count"]))
     metric_cols[1].metric("삭제 건수", str(result["deleted_row_count"]))
@@ -1466,6 +1497,132 @@ def _render_molit_sale_import_tab(
     st.caption(
         f"조회 기간: {result['window_start_date']} ~ {result['window_end_date']} / "
         f"조회 월: {', '.join(result['year_months'])}"
+    )
+
+
+def _render_molit_sale_import_result(result: dict) -> None:
+    st.success(
+        f"Imported {result['imported_row_count']} MOLIT sale transactions for {result['complex_name']}."
+    )
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("Imported", str(result["imported_row_count"]))
+    metric_cols[1].metric("Deleted", str(result["deleted_row_count"]))
+    metric_cols[2].metric("Collected", str(result["raw_row_count"]))
+    metric_cols[3].metric("Skipped", str(result["skipped_row_count"]))
+    st.caption(
+        f"Window: {result['window_start_date']} ~ {result['window_end_date']} / "
+        f"Months: {', '.join(result['year_months'])}"
+    )
+
+
+def _render_molit_sale_mapping_assist(
+    *,
+    complex_repository,
+    sale_transaction_import_service,
+    selected_complex: dict,
+    lawd_code: str,
+    candidates: list[dict],
+) -> None:
+    if not candidates:
+        return
+
+    st.divider()
+    st.write("MOLIT Mapping Assist")
+    st.caption(
+        "Use an API candidate as the default value, edit aptNm/umdNm/LAWD_CD if needed, then save the mapping or save and retry the import."
+    )
+
+    option_map = _format_molit_sale_candidate_options(candidates)
+    selected_candidate_label = st.selectbox(
+        "Candidate",
+        list(option_map.keys()),
+        key=f"molit_mapping_candidate_{selected_complex['id']}"
+    )
+    selected_candidate = option_map[selected_candidate_label]
+
+    with st.form(f"molit_mapping_assist_form_{selected_complex['id']}"):
+        mapping_col1, mapping_col2 = st.columns(2)
+        with mapping_col1:
+            mapping_lawd_code = st.text_input(
+                "MOLIT LAWD_CD",
+                value=str(lawd_code or selected_complex.get("molit_lawd_cd") or "").strip(),
+            )
+            mapping_umd_name = st.text_input(
+                "MOLIT umdNm",
+                value=str(selected_candidate.get("umdNm") or "").strip(),
+            )
+        with mapping_col2:
+            mapping_apt_name = st.text_input(
+                "MOLIT aptNm",
+                value=str(selected_candidate.get("aptNm") or "").strip(),
+            )
+
+        button_col1, button_col2 = st.columns(2)
+        save_clicked = button_col1.form_submit_button("Save Mapping")
+        save_and_retry_clicked = button_col2.form_submit_button("Save And Retry Import")
+
+    if not save_clicked and not save_and_retry_clicked:
+        return
+
+    _save_molit_mapping(
+        complex_repository=complex_repository,
+        complex_row=selected_complex,
+        lawd_code=mapping_lawd_code,
+        apt_name=mapping_apt_name,
+        umd_name=mapping_umd_name,
+    )
+
+    if save_clicked:
+        _clear_molit_sale_import_state(st.session_state)
+        st.success("Saved MOLIT mapping.")
+        st.rerun()
+
+    try:
+        result = sale_transaction_import_service.import_recent_transactions(
+            complex_id=int(selected_complex["id"]),
+            lawd_code=mapping_lawd_code,
+            months=12,
+        )
+    except MolitSaleImportNoMatchError as exc:
+        _store_molit_sale_import_state(
+            st.session_state,
+            complex_id=int(selected_complex["id"]),
+            lawd_code=mapping_lawd_code,
+            message=exc.message,
+            candidates=exc.candidates,
+        )
+        st.success("Saved MOLIT mapping.")
+        st.error(exc.message)
+        _render_molit_sale_candidates(exc.candidates)
+        return
+    except Exception as exc:
+        st.success("Saved MOLIT mapping.")
+        st.error(str(exc))
+        return
+
+    _clear_molit_sale_import_state(st.session_state)
+    _render_molit_sale_import_result(result)
+
+
+
+
+def _render_molit_sale_no_match_state(
+    *,
+    complex_repository,
+    sale_transaction_import_service,
+    selected_complex: dict,
+    lawd_code: str,
+    message: str,
+    candidates: list[dict],
+) -> None:
+    st.error(message)
+    _render_molit_sale_candidates(candidates)
+    _render_molit_sale_mapping_assist(
+        complex_repository=complex_repository,
+        sale_transaction_import_service=sale_transaction_import_service,
+        selected_complex=selected_complex,
+        lawd_code=lawd_code,
+        candidates=candidates,
     )
 
 
@@ -1484,6 +1641,25 @@ def _format_molit_sale_candidates(candidates: list[dict]) -> list[str]:
     ]
 
 
+def _format_molit_sale_candidate_options(candidates: list[dict]) -> dict[str, dict]:
+    options: dict[str, dict] = {}
+    duplicate_counts: dict[str, int] = {}
+    for item in candidates:
+        base_label = (
+            f"aptNm={item.get('aptNm') or '-'} | "
+            f"umdNm={item.get('umdNm') or '-'} | "
+            f"count={int(item.get('count') or 0)}"
+        )
+        duplicate_counts[base_label] = duplicate_counts.get(base_label, 0) + 1
+        label = (
+            base_label
+            if duplicate_counts[base_label] == 1
+            else f"{base_label} [{duplicate_counts[base_label]}]"
+        )
+        options[label] = dict(item)
+    return options
+
+
 def _default_molit_lawd_code(complex_row: dict, *, lawd_code_service=None) -> str:
     if lawd_code_service is not None:
         try:
@@ -1497,6 +1673,84 @@ def _default_molit_lawd_code(complex_row: dict, *, lawd_code_service=None) -> st
         if resolved:
             return resolved
     return str(complex_row.get("molit_lawd_cd") or "").strip()
+
+
+def _store_molit_sale_import_state(
+    session_state,
+    *,
+    complex_id: int,
+    lawd_code: str,
+    message: str,
+    candidates: list[dict],
+) -> None:
+    session_state[MOLIT_SALE_IMPORT_STATE_KEY] = {
+        "complex_id": int(complex_id),
+        "lawd_code": str(lawd_code or "").strip(),
+        "message": str(message or "").strip(),
+        "candidates": [dict(item) for item in candidates],
+    }
+
+
+def _get_molit_sale_import_state_for_complex(session_state, *, complex_id: int) -> dict | None:
+    state = session_state.get(MOLIT_SALE_IMPORT_STATE_KEY)
+    if not isinstance(state, dict):
+        return None
+    if int(state.get("complex_id") or -1) != int(complex_id):
+        return None
+    return state
+
+
+def _clear_molit_sale_import_state(session_state) -> None:
+    session_state.pop(MOLIT_SALE_IMPORT_STATE_KEY, None)
+
+
+def _save_molit_mapping(
+    *,
+    complex_repository,
+    complex_row: dict,
+    lawd_code: str,
+    apt_name: str,
+    umd_name: str,
+) -> None:
+    complex_repository.update(
+        int(complex_row["id"]),
+        **_build_molit_mapping_update_payload(
+            complex_row,
+            lawd_code=lawd_code,
+            apt_name=apt_name,
+            umd_name=umd_name,
+        ),
+    )
+
+
+def _build_molit_mapping_update_payload(
+    complex_row: dict,
+    *,
+    lawd_code: str,
+    apt_name: str,
+    umd_name: str,
+) -> dict:
+    return {
+        "name": str(complex_row.get("name") or "").strip(),
+        "sido": str(complex_row.get("sido") or "").strip(),
+        "sigungu": str(complex_row.get("sigungu") or "").strip(),
+        "dong": str(complex_row.get("dong") or "").strip(),
+        "address": str(complex_row.get("address") or "").strip(),
+        "build_year": complex_row.get("build_year"),
+        "household_count": complex_row.get("household_count"),
+        "lat": complex_row.get("lat"),
+        "lng": complex_row.get("lng"),
+        "molit_lawd_cd": _optional_text(lawd_code),
+        "molit_apt_name": _optional_text(apt_name),
+        "molit_umd_name": _optional_text(umd_name),
+        "complex_grade": complex_row.get("complex_grade"),
+        "memo": _optional_text(complex_row.get("memo")),
+    }
+
+
+def _optional_text(value: object) -> str | None:
+    normalized = str(value or "").strip()
+    return normalized or None
 
 
 def _render_policy_import_tab(*, policy_import_service) -> None:

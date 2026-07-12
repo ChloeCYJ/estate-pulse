@@ -21,8 +21,9 @@ class AppSettings:
     legal_fee_fixed: int
     contingency_rate: float
     default_ltv_limit: float
-    molit_service_key: str | None
-    reb_service_key: str | None
+    molit_service_key: str | None = None
+    juso_api_key: str | None = None
+    reb_service_key: str | None = None
     database_url: str | None = None
 
     @property
@@ -56,6 +57,7 @@ def get_settings() -> AppSettings:
         contingency_rate=_get_env_float("CONTINGENCY_RATE", 0.005),
         default_ltv_limit=_get_env_float("DEFAULT_LTV_LIMIT", 0.6),
         molit_service_key=os.getenv("MOLIT_SERVICE_KEY"),
+        juso_api_key=os.getenv("JUSO_API_KEY"),
         reb_service_key=os.getenv("REB_SERVICE_KEY"),
         database_url=database_url,
     )

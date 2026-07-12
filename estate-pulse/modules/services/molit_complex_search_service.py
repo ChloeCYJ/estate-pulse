@@ -275,7 +275,7 @@ def _to_amount(value: object) -> int | None:
     digits = re.sub(r"[^0-9]", "", str(value))
     if not digits:
         return None
-    return int(digits)
+    return int(digits) * 10_000
 
 
 def _to_int(value: object) -> int | None:

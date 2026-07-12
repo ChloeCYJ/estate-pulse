@@ -106,6 +106,7 @@ The Windows install/init flow creates the `estate` role, the `estate_pulse` and 
 ## User Workflow
 
 1. Register one or more apartment complexes.
+   - The current complex registration UI supports Juso address search for apartment lookup and keeps the legacy manual entry form as a fallback.
 2. Add manual listings linked to a complex.
 3. Create a finance profile with cash, debt, owned real-estate, annual income, annual interest rate, and optional manual LTV override settings.
 4. Open the analysis page.
@@ -255,6 +256,7 @@ Run the basic analyzer test suite:
 
 - Calculation defaults such as acquisition tax, brokerage fee, legal fee, and contingency rate are configurable through `.env`.
 - Apartment complex registration currently supports the existing manual flow plus optional MOLIT mapping fields on `apartment_complex`. Fast address-search autocomplete is not implemented yet.
+- `JUSO_API_KEY` enables address-search-based apartment lookup in the complex registration UI. If it is missing, only the address search feature is disabled and the manual registration fallback remains available.
 - `LawdCodeService` expects a local `법정동코드 전체자료.txt` source file in the workspace root for `LAWD_CD` resolution used by admin import and related helpers.
 - The current analysis page can use transaction-derived market context and optional manual benchmark overrides.
 - Finance profile annual interest rate is entered as a percent value in the UI. For example, `4.0` means `4%`, and the app stores it as a ratio for calculation.

@@ -83,7 +83,10 @@ class MolitSaleImportService:
         if not payload:
             raise MolitSaleImportNoMatchError(
                 message="No matching MOLIT sale transactions were found.",
-                candidates=_collect_api_candidates(collected_rows),
+                candidates=_collect_api_candidates(
+                    collected_rows,
+                    expected_dong_name=expected_dong_name,
+                ),
             )
 
         start_date = _window_start_date(target_date=target_date, months=months).isoformat()
@@ -252,7 +255,12 @@ def _is_name_character(char: str) -> bool:
     return bool(category) and category[0] in {"L", "N"}
 
 
-def _collect_api_candidates(collected_rows: list[dict], limit: int = 20) -> list[dict]:
+def _collect_api_candidates(
+    collected_rows: list[dict],
+    *,
+    expected_dong_name: str = "",
+    limit: int = 100,
+) -> list[dict]:
     candidate_counter: Counter[tuple[str, str]] = Counter()
     for row in collected_rows:
         apt_name = str(row.get("aptNm") or row.get("아파트") or "").strip()
@@ -262,7 +270,20 @@ def _collect_api_candidates(collected_rows: list[dict], limit: int = 20) -> list
         candidate_counter[(apt_name, umd_name)] += 1
 
     candidates: list[dict] = []
-    for (apt_name, umd_name), count in candidate_counter.most_common(limit):
+    normalized_expected_dong_name = _normalize_name(expected_dong_name)
+    ranked_candidates = sorted(
+        candidate_counter.items(),
+        key=lambda item: (
+            0
+            if normalized_expected_dong_name
+            and _normalize_name(item[0][1]) == normalized_expected_dong_name
+            else 1,
+            -int(item[1]),
+            item[0][0],
+            item[0][1],
+        ),
+    )
+    for (apt_name, umd_name), count in ranked_candidates[:limit]:
         candidates.append(
             {
                 "aptNm": apt_name or "-",
@@ -279,7 +300,7 @@ def _to_amount(value: object) -> int | None:
     digits = re.sub(r"[^0-9]", "", str(value))
     if not digits:
         return None
-    return int(digits)
+    return int(digits) * 10_000
 
 
 def _to_int(value: object) -> int | None:

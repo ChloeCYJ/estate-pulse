@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+import unicodedata
 
 
 REGION_LEVELS = ("SIDO", "SIGUNGU", "DONG")
@@ -110,9 +111,9 @@ class RegionPolicyService:
     ) -> dict:
         target_date = reference_date or date.today()
         normalized_address = {
-            "sido": (sido or "").strip(),
-            "sigungu": (sigungu or "").strip(),
-            "dong": (dong or "").strip(),
+            "sido": _normalize_sido_text(sido),
+            "sigungu": _normalize_region_text(sigungu),
+            "dong": _normalize_region_text(dong),
         }
         matching_statuses = [
             item
@@ -238,9 +239,11 @@ class RegionPolicyService:
     def _same_scope(self, left: dict, right: dict) -> bool:
         return (
             str(left["region_level"]) == str(right["region_level"])
-            and str(left["sido"]) == str(right["sido"])
-            and (left.get("sigungu") or None) == (right.get("sigungu") or None)
-            and (left.get("dong") or None) == (right.get("dong") or None)
+            and _normalize_sido_text(left["sido"]) == _normalize_sido_text(right["sido"])
+            and _normalize_optional_region_text(left.get("sigungu"))
+            == _normalize_optional_region_text(right.get("sigungu"))
+            and _normalize_optional_region_text(left.get("dong"))
+            == _normalize_optional_region_text(right.get("dong"))
         )
 
     def _date_ranges_overlap(self, left: dict, right: dict) -> bool:
@@ -268,15 +271,15 @@ class RegionPolicyService:
         return target_date <= date.fromisoformat(str(effective_to))
 
     def _matches_scope(self, item: dict, normalized_address: dict) -> bool:
-        if str(item["sido"]) != normalized_address["sido"]:
+        if _normalize_sido_text(item["sido"]) != normalized_address["sido"]:
             return False
         if str(item["region_level"]) == "SIDO":
             return True
-        if (item.get("sigungu") or "") != normalized_address["sigungu"]:
+        if _normalize_region_text(item.get("sigungu")) != normalized_address["sigungu"]:
             return False
         if str(item["region_level"]) == "SIGUNGU":
             return True
-        return (item.get("dong") or "") == normalized_address["dong"]
+        return _normalize_region_text(item.get("dong")) == normalized_address["dong"]
 
     def _region_scope_label(self, item: dict) -> str:
         if str(item["region_level"]) == "SIDO":
@@ -284,3 +287,47 @@ class RegionPolicyService:
         if str(item["region_level"]) == "SIGUNGU":
             return f"{item['sido']} {item['sigungu']}"
         return f"{item['sido']} {item['sigungu']} {item['dong']}"
+
+
+def _normalize_optional_region_text(value: str | None) -> str | None:
+    normalized = _normalize_region_text(value)
+    return normalized or None
+
+
+def _normalize_region_text(value: str | None) -> str:
+    normalized = unicodedata.normalize("NFKC", str(value or "")).casefold().strip()
+    return "".join(normalized.split())
+
+
+def _normalize_sido_text(value: str | None) -> str:
+    normalized = _normalize_region_text(value)
+    return _SIDO_ALIASES.get(normalized, normalized)
+
+
+_SIDO_ALIASES = {
+    "서울": "서울특별시",
+    "서울시": "서울특별시",
+    "부산": "부산광역시",
+    "부산시": "부산광역시",
+    "대구": "대구광역시",
+    "대구시": "대구광역시",
+    "인천": "인천광역시",
+    "인천시": "인천광역시",
+    "광주": "광주광역시",
+    "광주시": "광주광역시",
+    "대전": "대전광역시",
+    "대전시": "대전광역시",
+    "울산": "울산광역시",
+    "울산시": "울산광역시",
+    "세종": "세종특별자치시",
+    "세종시": "세종특별자치시",
+    "경기": "경기도",
+    "강원": "강원특별자치도",
+    "충북": "충청북도",
+    "충남": "충청남도",
+    "전북": "전북특별자치도",
+    "전남": "전라남도",
+    "경북": "경상북도",
+    "경남": "경상남도",
+    "제주": "제주특별자치도",
+}

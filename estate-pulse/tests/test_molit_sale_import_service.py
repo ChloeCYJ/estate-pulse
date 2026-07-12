@@ -120,6 +120,31 @@ class MolitSaleImportServiceTests(unittest.TestCase):
         self.assertTrue(any(int(row["price"]) == 810_000_000 for row in rows))
         self.assertFalse(any(int(row["price"]) == 900_000_000 for row in rows if row["deal_date"] == "2026-01-15"))
 
+    def test_import_recent_transactions_converts_molit_deal_amount_from_manwon_to_won(self) -> None:
+        service = self._build_service(
+            {
+                "202606": [
+                    self._molit_row(
+                        apt_name="River Park",
+                        umd_name="Banpo-dong",
+                        deal_amount="230,000",
+                    )
+                ]
+            }
+        )
+
+        service.import_recent_transactions(
+            complex_id=self.complex_id,
+            lawd_code="11680",
+            months=1,
+            reference_date=date(2026, 6, 14),
+        )
+
+        rows = self.sale_transaction_repository.list_all()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(int(rows[0]["price"]), 2_300_000_000)
+
     def test_import_recent_transactions_returns_candidates_when_no_exact_match_exists(self) -> None:
         service = MolitSaleImportService(
             complex_repository=self.complex_repository,
@@ -330,6 +355,58 @@ class MolitSaleImportServiceTests(unittest.TestCase):
             context.exception.candidates,
             [{"aptNm": "\uc11c\uc6b8\uc232\ud478\ub974\uc9c0\uc6241\ucc28", "umdNm": "\uae08\ud6384\uac00", "count": 1}],
         )
+
+    def test_import_recent_transactions_prioritizes_same_dong_candidates_in_no_match_output(self) -> None:
+        complex_id = self._create_complex(
+            name="\uc625\uc218\uc0bc\uc131\uc544\ud30c\ud2b8",
+            dong="\uc625\uc218\ub3d9",
+            address="\uc11c\uc6b8 \uc131\ub3d9\uad6c \uc625\uc218\ub3d9 250",
+        )
+        service = self._build_service(
+            {
+                "202606": [
+                    self._molit_row(apt_name="센트라스", umd_name="행당동", jibun="1"),
+                    self._molit_row(apt_name="센트라스", umd_name="행당동", jibun="2"),
+                    self._molit_row(apt_name="센트라스", umd_name="행당동", jibun="3"),
+                    self._molit_row(apt_name="옥수삼성", umd_name="옥수동", jibun="250"),
+                ]
+            }
+        )
+
+        with self.assertRaises(MolitSaleImportNoMatchError) as context:
+            service.import_recent_transactions(
+                complex_id=complex_id,
+                lawd_code="11200",
+                months=1,
+                reference_date=date(2026, 6, 14),
+            )
+
+        self.assertEqual(context.exception.candidates[0]["aptNm"], "옥수삼성")
+        self.assertEqual(context.exception.candidates[0]["umdNm"], "옥수동")
+
+    def test_import_recent_transactions_returns_more_than_twenty_candidates_when_available(self) -> None:
+        service = self._build_service(
+            {
+                "202606": [
+                    self._molit_row(
+                        apt_name=f"Different Complex {index}",
+                        umd_name="Banpo-dong",
+                        jibun=str(index),
+                    )
+                    for index in range(25)
+                ]
+            }
+        )
+
+        with self.assertRaises(MolitSaleImportNoMatchError) as context:
+            service.import_recent_transactions(
+                complex_id=self.complex_id,
+                lawd_code="11680",
+                months=1,
+                reference_date=date(2026, 6, 14),
+            )
+
+        self.assertEqual(len(context.exception.candidates), 25)
 
     def _build_service(self, responses_by_year_month: dict[str, list[dict]]) -> MolitSaleImportService:
         return MolitSaleImportService(
