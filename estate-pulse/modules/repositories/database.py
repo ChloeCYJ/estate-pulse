@@ -14,6 +14,66 @@ except ImportError:  # pragma: no cover - optional dependency for PostgreSQL run
     dict_row = None
 
 
+ANALYSIS_RESULT_TABLE_SQL = """
+    CREATE TABLE IF NOT EXISTS analysis_result (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        target_type TEXT NOT NULL DEFAULT 'LISTING',
+        listing_id INTEGER,
+        complex_id INTEGER,
+        area_bucket REAL,
+        price_source TEXT,
+        effective_price_snapshot INTEGER,
+        reference_price INTEGER,
+        sample_count INTEGER,
+        latest_transaction_date TEXT,
+        selected_transaction_min_price INTEGER,
+        selected_transaction_max_price INTEGER,
+        confidence TEXT,
+        volatility_status TEXT,
+        finance_profile_id INTEGER,
+        required_cash INTEGER,
+        shortage_cash INTEGER,
+        jeonse_ratio REAL,
+        discount_vs_recent_avg REAL,
+        drop_from_high REAL,
+        bargain_score INTEGER,
+        undervalue_score INTEGER,
+        risk_score INTEGER,
+        investment_type TEXT,
+        current_required_cash INTEGER,
+        future_required_cash INTEGER,
+        monthly_cash_flow INTEGER,
+        acquisition_tax INTEGER,
+        local_education_tax INTEGER,
+        brokerage_fee INTEGER,
+        legal_fee INTEGER,
+        reserve_cost INTEGER,
+        total_transaction_cost INTEGER,
+        applied_tax_rule_version TEXT,
+        applied_brokerage_rule_version TEXT,
+        liquidity_score INTEGER,
+        investment_score INTEGER,
+        complex_grade TEXT,
+        sale_price_snapshot INTEGER,
+        jeonse_price_snapshot INTEGER,
+        area_m2_snapshot REAL,
+        complex_name_snapshot TEXT,
+        available_cash_snapshot INTEGER,
+        annual_income_snapshot INTEGER,
+        buyer_type_snapshot TEXT,
+        expected_loan_amount INTEGER,
+        monthly_repayment INTEGER,
+        loan_rule_version TEXT,
+        decision TEXT,
+        summary TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (listing_id) REFERENCES manual_listing(id) ON DELETE CASCADE,
+        FOREIGN KEY (complex_id) REFERENCES apartment_complex(id) ON DELETE CASCADE,
+        FOREIGN KEY (finance_profile_id) REFERENCES user_finance_profile(id) ON DELETE SET NULL
+    )
+"""
+
+
 SCHEMA_STATEMENTS = [
     """
     CREATE TABLE IF NOT EXISTS interest_area (
@@ -115,51 +175,7 @@ SCHEMA_STATEMENTS = [
         created_at TEXT NOT NULL
     )
     """,
-    """
-    CREATE TABLE IF NOT EXISTS analysis_result (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        listing_id INTEGER NOT NULL,
-        finance_profile_id INTEGER,
-        required_cash INTEGER,
-        shortage_cash INTEGER,
-        jeonse_ratio REAL,
-        discount_vs_recent_avg REAL,
-        drop_from_high REAL,
-        bargain_score INTEGER,
-        undervalue_score INTEGER,
-        risk_score INTEGER,
-        investment_type TEXT,
-        current_required_cash INTEGER,
-        future_required_cash INTEGER,
-        monthly_cash_flow INTEGER,
-        acquisition_tax INTEGER,
-        local_education_tax INTEGER,
-        brokerage_fee INTEGER,
-        legal_fee INTEGER,
-        reserve_cost INTEGER,
-        total_transaction_cost INTEGER,
-        applied_tax_rule_version TEXT,
-        applied_brokerage_rule_version TEXT,
-        liquidity_score INTEGER,
-        investment_score INTEGER,
-        complex_grade TEXT,
-        sale_price_snapshot INTEGER,
-        jeonse_price_snapshot INTEGER,
-        area_m2_snapshot REAL,
-        complex_name_snapshot TEXT,
-        available_cash_snapshot INTEGER,
-        annual_income_snapshot INTEGER,
-        buyer_type_snapshot TEXT,
-        expected_loan_amount INTEGER,
-        monthly_repayment INTEGER,
-        loan_rule_version TEXT,
-        decision TEXT,
-        summary TEXT,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY (listing_id) REFERENCES manual_listing(id) ON DELETE CASCADE,
-        FOREIGN KEY (finance_profile_id) REFERENCES user_finance_profile(id) ON DELETE SET NULL
-    )
-    """,
+    ANALYSIS_RESULT_TABLE_SQL,
     """
     CREATE TABLE IF NOT EXISTS watchlist (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -262,9 +278,7 @@ SCHEMA_STATEMENTS = [
     """,
 ]
 
-POSTGRES_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[2] / "migrations" / "postgres" / "0001_initial_schema.sql"
-)
+POSTGRES_MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations" / "postgres"
 POSTGRES_URL_PREFIXES = ("postgresql://", "postgres://")
 INSERT_TABLE_PATTERN = re.compile(r"INSERT\s+INTO\s+([a-zA-Z_][a-zA-Z0-9_]*)", re.IGNORECASE)
 
@@ -306,6 +320,7 @@ def initialize_database(database_path: Path | str) -> None:
             for statement in _load_postgres_schema_statements():
                 connection.execute(statement)
             _ensure_postgres_apartment_complex_columns(connection)
+            _ensure_postgres_analysis_result_columns(connection)
             connection.commit()
             return
 
@@ -314,6 +329,7 @@ def initialize_database(database_path: Path | str) -> None:
         _ensure_manual_listing_columns(connection)
         _ensure_apartment_complex_columns(connection)
         _ensure_user_finance_profile_columns(connection)
+        _ensure_analysis_result_listing_id_nullable(connection)
         _ensure_analysis_result_columns(connection)
         connection.commit()
 
@@ -385,6 +401,36 @@ def _ensure_analysis_result_columns(connection: sqlite3.Connection) -> None:
     existing_columns = {
         row["name"] for row in connection.execute("PRAGMA table_info(analysis_result)").fetchall()
     }
+    if "target_type" not in existing_columns:
+        connection.execute(
+            "ALTER TABLE analysis_result ADD COLUMN target_type TEXT NOT NULL DEFAULT 'LISTING'"
+        )
+    if "complex_id" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN complex_id INTEGER")
+    if "area_bucket" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN area_bucket REAL")
+    if "price_source" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN price_source TEXT")
+    if "effective_price_snapshot" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN effective_price_snapshot INTEGER")
+    if "reference_price" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN reference_price INTEGER")
+    if "sample_count" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN sample_count INTEGER")
+    if "latest_transaction_date" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN latest_transaction_date TEXT")
+    if "selected_transaction_min_price" not in existing_columns:
+        connection.execute(
+            "ALTER TABLE analysis_result ADD COLUMN selected_transaction_min_price INTEGER"
+        )
+    if "selected_transaction_max_price" not in existing_columns:
+        connection.execute(
+            "ALTER TABLE analysis_result ADD COLUMN selected_transaction_max_price INTEGER"
+        )
+    if "confidence" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN confidence TEXT")
+    if "volatility_status" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN volatility_status TEXT")
     if "finance_profile_id" not in existing_columns:
         connection.execute("ALTER TABLE analysis_result ADD COLUMN finance_profile_id INTEGER")
     if "investment_type" not in existing_columns:
@@ -439,6 +485,90 @@ def _ensure_analysis_result_columns(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE analysis_result ADD COLUMN monthly_repayment INTEGER")
 
 
+def _ensure_analysis_result_listing_id_nullable(connection: sqlite3.Connection) -> None:
+    table_info = connection.execute("PRAGMA table_info(analysis_result)").fetchall()
+    listing_row = next((row for row in table_info if row["name"] == "listing_id"), None)
+    if listing_row is None or int(listing_row["notnull"]) == 0:
+        return
+
+    existing_columns = [row["name"] for row in table_info]
+    existing_indexes = [
+        row["sql"]
+        for row in connection.execute(
+            """
+            SELECT sql
+            FROM sqlite_master
+            WHERE type = 'index'
+              AND tbl_name = 'analysis_result'
+              AND sql IS NOT NULL
+            ORDER BY name ASC
+            """
+        ).fetchall()
+    ]
+    connection.execute("PRAGMA foreign_keys = OFF")
+    connection.execute("DROP TABLE IF EXISTS analysis_result_new")
+    connection.execute(_analysis_result_table_sql_for_name("analysis_result_new"))
+
+    copy_columns = [
+        column_name
+        for column_name in (
+            "id",
+            "listing_id",
+            "finance_profile_id",
+            "required_cash",
+            "shortage_cash",
+            "jeonse_ratio",
+            "discount_vs_recent_avg",
+            "drop_from_high",
+            "bargain_score",
+            "undervalue_score",
+            "risk_score",
+            "investment_type",
+            "current_required_cash",
+            "future_required_cash",
+            "monthly_cash_flow",
+            "acquisition_tax",
+            "local_education_tax",
+            "brokerage_fee",
+            "legal_fee",
+            "reserve_cost",
+            "total_transaction_cost",
+            "applied_tax_rule_version",
+            "applied_brokerage_rule_version",
+            "liquidity_score",
+            "investment_score",
+            "complex_grade",
+            "sale_price_snapshot",
+            "jeonse_price_snapshot",
+            "area_m2_snapshot",
+            "complex_name_snapshot",
+            "available_cash_snapshot",
+            "annual_income_snapshot",
+            "buyer_type_snapshot",
+            "expected_loan_amount",
+            "monthly_repayment",
+            "loan_rule_version",
+            "decision",
+            "summary",
+            "created_at",
+        )
+        if column_name in existing_columns
+    ]
+    column_csv = ", ".join(copy_columns)
+    connection.execute(
+        f"""
+        INSERT INTO analysis_result_new ({column_csv})
+        SELECT {column_csv}
+        FROM analysis_result
+        """
+    )
+    connection.execute("DROP TABLE analysis_result")
+    connection.execute("ALTER TABLE analysis_result_new RENAME TO analysis_result")
+    for index_sql in existing_indexes:
+        connection.execute(str(index_sql))
+    connection.execute("PRAGMA foreign_keys = ON")
+
+
 def _ensure_manual_listing_columns(connection: sqlite3.Connection) -> None:
     existing_columns = {
         row["name"] for row in connection.execute("PRAGMA table_info(manual_listing)").fetchall()
@@ -471,6 +601,32 @@ def _ensure_postgres_apartment_complex_columns(connection: Any) -> None:
     connection.execute("ALTER TABLE apartment_complex ADD COLUMN IF NOT EXISTS molit_lawd_cd TEXT")
     connection.execute("ALTER TABLE apartment_complex ADD COLUMN IF NOT EXISTS molit_apt_name TEXT")
     connection.execute("ALTER TABLE apartment_complex ADD COLUMN IF NOT EXISTS molit_umd_name TEXT")
+
+
+def _ensure_postgres_analysis_result_columns(connection: Any) -> None:
+    connection.execute("ALTER TABLE analysis_result ALTER COLUMN listing_id DROP NOT NULL")
+    connection.execute(
+        "ALTER TABLE analysis_result ADD COLUMN IF NOT EXISTS target_type TEXT NOT NULL DEFAULT 'LISTING'"
+    )
+    connection.execute("ALTER TABLE analysis_result ADD COLUMN IF NOT EXISTS complex_id BIGINT")
+    connection.execute("ALTER TABLE analysis_result ADD COLUMN IF NOT EXISTS area_bucket DOUBLE PRECISION")
+    connection.execute("ALTER TABLE analysis_result ADD COLUMN IF NOT EXISTS price_source TEXT")
+    connection.execute(
+        "ALTER TABLE analysis_result ADD COLUMN IF NOT EXISTS effective_price_snapshot BIGINT"
+    )
+    connection.execute("ALTER TABLE analysis_result ADD COLUMN IF NOT EXISTS reference_price BIGINT")
+    connection.execute("ALTER TABLE analysis_result ADD COLUMN IF NOT EXISTS sample_count BIGINT")
+    connection.execute(
+        "ALTER TABLE analysis_result ADD COLUMN IF NOT EXISTS latest_transaction_date TEXT"
+    )
+    connection.execute(
+        "ALTER TABLE analysis_result ADD COLUMN IF NOT EXISTS selected_transaction_min_price BIGINT"
+    )
+    connection.execute(
+        "ALTER TABLE analysis_result ADD COLUMN IF NOT EXISTS selected_transaction_max_price BIGINT"
+    )
+    connection.execute("ALTER TABLE analysis_result ADD COLUMN IF NOT EXISTS confidence TEXT")
+    connection.execute("ALTER TABLE analysis_result ADD COLUMN IF NOT EXISTS volatility_status TEXT")
 
 
 def _prepare_query(database_path: Path | str, query: str) -> str:
@@ -526,6 +682,71 @@ def _normalize_value(value: Any) -> Any:
     return value
 
 
+def _analysis_result_table_sql_for_name(table_name: str) -> str:
+    return ANALYSIS_RESULT_TABLE_SQL.replace(
+        "CREATE TABLE IF NOT EXISTS analysis_result",
+        f"CREATE TABLE {table_name}",
+        1,
+    )
+
+
 def _load_postgres_schema_statements() -> list[str]:
-    schema_sql = POSTGRES_SCHEMA_PATH.read_text(encoding="utf-8")
-    return [statement.strip() for statement in schema_sql.split(";") if statement.strip()]
+    schema_sql_parts = [
+        path.read_text(encoding="utf-8")
+        for path in sorted(POSTGRES_MIGRATIONS_DIR.glob("*.sql"))
+    ]
+    schema_sql = "\n".join(schema_sql_parts)
+    return _split_sql_statements(schema_sql)
+
+
+def _split_sql_statements(schema_sql: str) -> list[str]:
+    statements: list[str] = []
+    current: list[str] = []
+    in_single_quote = False
+    dollar_tag: str | None = None
+    index = 0
+
+    while index < len(schema_sql):
+        if dollar_tag is not None:
+            if schema_sql.startswith(dollar_tag, index):
+                current.append(dollar_tag)
+                index += len(dollar_tag)
+                dollar_tag = None
+                continue
+            current.append(schema_sql[index])
+            index += 1
+            continue
+
+        if schema_sql.startswith("$$", index):
+            dollar_tag = "$$"
+            current.append(dollar_tag)
+            index += len(dollar_tag)
+            continue
+
+        char = schema_sql[index]
+        if char == "'":
+            next_char = schema_sql[index + 1] if index + 1 < len(schema_sql) else ""
+            current.append(char)
+            index += 1
+            if in_single_quote and next_char == "'":
+                current.append(next_char)
+                index += 1
+                continue
+            in_single_quote = not in_single_quote
+            continue
+
+        if char == ";" and not in_single_quote:
+            statement = "".join(current).strip()
+            if statement:
+                statements.append(statement)
+            current = []
+            index += 1
+            continue
+
+        current.append(char)
+        index += 1
+
+    trailing_statement = "".join(current).strip()
+    if trailing_statement:
+        statements.append(trailing_statement)
+    return statements

@@ -61,3 +61,8 @@ JUSO_API_KEY="devU01TX0FVVEgyMDI2MDcxMjAwNDAxMTExOTcwMzc="
 .\.venv\Scripts\python -m streamlit run app.py
 
 1120011200	서울특별시 성동구 금호동4가
+
+
+$env:POSTGRES_ADMIN_PASSWORD="postgres"
+powershell -ExecutionPolicy Bypass -File .\scripts\init_postgres.ps1
+.\.venv\Scripts\python -m streamlit run app.py

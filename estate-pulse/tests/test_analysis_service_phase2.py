@@ -130,6 +130,39 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
         self.assertEqual(result["bargain_score"], 55)
         self.assertEqual(result["region_policy_source"], "default")
 
+    def test_run_complex_area_analysis_uses_transaction_reference_without_listing(self) -> None:
+        result = self.analysis_service.run_complex_area_analysis(
+            complex_id=self.complex_id,
+            area_m2=84.9,
+            finance_profile_id=self.profile_id,
+            benchmarks=BenchmarkInputs(
+                reference_date=date(2026, 5, 27),
+                analysis_mode="OWNER_OCCUPIED",
+            ),
+            save_result=False,
+        )
+
+        self.assertIsNone(result["listing_id"])
+        self.assertEqual(result["price_source"], "TRANSACTION_REFERENCE")
+        self.assertEqual(result["sale_price"], 990_000_000)
+        self.assertEqual(result["reference_price_metadata"]["sample_count"], 3)
+        self.assertEqual(result["reference_price_metadata"]["confidence"], "HIGH")
+
+    def test_run_complex_area_analysis_prefers_listing_price_when_listing_is_selected(self) -> None:
+        result = self.analysis_service.run_complex_area_analysis(
+            complex_id=self.complex_id,
+            area_m2=84.9,
+            listing_id=self.listing_id,
+            finance_profile_id=self.profile_id,
+            benchmarks=BenchmarkInputs(reference_date=date(2026, 5, 27)),
+            save_result=False,
+        )
+
+        self.assertEqual(result["listing_id"], self.listing_id)
+        self.assertEqual(result["price_source"], "LISTING")
+        self.assertEqual(result["sale_price"], 900_000_000)
+        self.assertEqual(result["reference_price_metadata"]["reference_price"], 990_000_000)
+
     def test_analysis_result_includes_applied_rules_trace(self) -> None:
         result = self.analysis_service.run_analysis(
             listing_id=self.listing_id,
@@ -571,6 +604,142 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
         self.assertEqual(saved["expected_loan_amount"], result["expected_loan_amount"])
         self.assertEqual(saved["monthly_repayment"], result["monthly_repayment"])
 
+    def test_basic_analysis_snapshot_saves_with_null_listing_id(self) -> None:
+        owner_profile_id = self.finance_repository.create(
+            cash_amount=300_000_000,
+            annual_income=120_000_000,
+            existing_debt=0,
+            interest_rate=0.04,
+            ltv_limit=None,
+            dsr_limit=None,
+        )
+
+        result = self.analysis_service.run_complex_area_analysis(
+            complex_id=self.complex_id,
+            area_m2=84.9,
+            finance_profile_id=owner_profile_id,
+            benchmarks=BenchmarkInputs(
+                reference_date=date(2026, 5, 27),
+                analysis_mode="OWNER_OCCUPIED",
+            ),
+            save_result=True,
+        )
+
+        saved = self.analysis_repository.get_latest_by_complex_area(
+            complex_id=self.complex_id,
+            area_bucket=84.9,
+        )
+
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved["target_type"], "COMPLEX_AREA")
+        self.assertIsNone(saved["listing_id"])
+        self.assertEqual(saved["complex_id"], self.complex_id)
+        self.assertAlmostEqual(saved["area_bucket"], 84.9)
+        self.assertEqual(saved["price_source"], "TRANSACTION_REFERENCE")
+        self.assertEqual(saved["effective_price_snapshot"], result["sale_price"])
+        self.assertEqual(saved["reference_price"], result["reference_price_metadata"]["reference_price"])
+        self.assertEqual(saved["sample_count"], 3)
+        self.assertEqual(saved["selected_transaction_min_price"], 970_000_000)
+        self.assertEqual(saved["selected_transaction_max_price"], 1_010_000_000)
+        self.assertEqual(saved["confidence"], "HIGH")
+        self.assertEqual(saved["volatility_status"], "STABLE")
+
+    def test_listing_and_basic_snapshots_are_stored_separately(self) -> None:
+        self.analysis_service.run_analysis(
+            listing_id=self.listing_id,
+            finance_profile_id=self.profile_id,
+            benchmarks=BenchmarkInputs(reference_date=date(2026, 5, 27)),
+            save_result=True,
+        )
+        self.analysis_service.run_complex_area_analysis(
+            complex_id=self.complex_id,
+            area_m2=84.9,
+            finance_profile_id=self.profile_id,
+            benchmarks=BenchmarkInputs(reference_date=date(2026, 5, 27)),
+            save_result=True,
+        )
+
+        saved_listing = self.analysis_repository.get_latest_by_listing(self.listing_id)
+        saved_reference = self.analysis_repository.get_latest_by_complex_area(
+            complex_id=self.complex_id,
+            area_bucket=84.9,
+        )
+
+        self.assertEqual(saved_listing["target_type"], "LISTING")
+        self.assertEqual(saved_listing["price_source"], "LISTING")
+        self.assertEqual(saved_reference["target_type"], "COMPLEX_AREA")
+        self.assertEqual(saved_reference["price_source"], "TRANSACTION_REFERENCE")
+
+    def test_basic_analysis_history_uses_complex_and_area_bucket(self) -> None:
+        self.analysis_service.run_complex_area_analysis(
+            complex_id=self.complex_id,
+            area_m2=84.9,
+            finance_profile_id=self.profile_id,
+            benchmarks=BenchmarkInputs(reference_date=date(2026, 5, 27)),
+            save_result=True,
+        )
+
+        created_at = self.analysis_repository.get_latest_created_at_by_complex_area(
+            complex_id=self.complex_id,
+            area_bucket=84.9,
+        )
+
+        self.assertIsNotNone(created_at)
+
+    def test_basic_analysis_does_not_save_when_reference_transactions_are_missing(self) -> None:
+        empty_complex_id = self.complex_repository.create(
+            name="No Transactions",
+            sido="Seoul",
+            sigungu="Mapo-gu",
+            dong="Seogyo-dong",
+            address="Seoul Mapo-gu Seogyo-dong",
+            build_year=2021,
+            household_count=None,
+            lat=None,
+            lng=None,
+            memo=None,
+        )
+
+        with self.assertRaisesRegex(ValueError, "분석 가능한 최근 실거래가 없습니다."):
+            self.analysis_service.run_complex_area_analysis(
+                complex_id=empty_complex_id,
+                area_m2=84.9,
+                finance_profile_id=self.profile_id,
+                benchmarks=BenchmarkInputs(reference_date=date(2026, 5, 27)),
+                save_result=True,
+            )
+
+        self.assertIsNone(
+            self.analysis_repository.get_latest_by_complex_area(
+                complex_id=empty_complex_id,
+                area_bucket=84.9,
+            )
+        )
+
+    def test_saved_basic_snapshot_is_not_recalculated_after_transaction_mutation(self) -> None:
+        self.analysis_service.run_complex_area_analysis(
+            complex_id=self.complex_id,
+            area_m2=84.9,
+            finance_profile_id=self.profile_id,
+            benchmarks=BenchmarkInputs(reference_date=date(2026, 5, 27)),
+            save_result=True,
+        )
+
+        self.sale_repository.bulk_create(
+            [
+                self._sale_tx("2026-05-20", 1_500_000_000),
+            ]
+        )
+
+        saved = self.analysis_repository.get_latest_by_complex_area(
+            complex_id=self.complex_id,
+            area_bucket=84.9,
+        )
+
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved["effective_price_snapshot"], 990_000_000)
+        self.assertEqual(saved["reference_price"], 990_000_000)
+
     def test_list_recent_keeps_snapshot_values_after_listing_and_complex_mutation(self) -> None:
         self.analysis_service.run_analysis(
             listing_id=self.listing_id,
@@ -616,6 +785,22 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
         self.assertEqual(latest["expected_jeonse_price"], 540_000_000)
         self.assertAlmostEqual(latest["area_m2"], 84.9)
         self.assertEqual(latest["complex_name"], "Test Complex")
+
+    def test_list_recent_includes_basic_analysis_snapshot(self) -> None:
+        self.analysis_service.run_complex_area_analysis(
+            complex_id=self.complex_id,
+            area_m2=84.9,
+            finance_profile_id=self.profile_id,
+            benchmarks=BenchmarkInputs(reference_date=date(2026, 5, 27)),
+            save_result=True,
+        )
+
+        latest = self.analysis_repository.list_recent(limit=1)[0]
+
+        self.assertEqual(latest["target_type"], "COMPLEX_AREA")
+        self.assertIsNone(latest["listing_id"])
+        self.assertEqual(latest["complex_name"], "Test Complex")
+        self.assertEqual(latest["sale_price"], 990_000_000)
 
     def test_list_recent_falls_back_to_live_values_for_legacy_rows_without_snapshots(self) -> None:
         self.analysis_repository.create(

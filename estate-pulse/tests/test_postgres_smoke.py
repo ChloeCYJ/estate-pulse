@@ -190,6 +190,63 @@ class PostgreSQLSmokeTests(unittest.TestCase):
         self.assertEqual(updated["build_year"], 2021)
         self.assertEqual(updated["memo"], "updated")
 
+    def test_complex_area_snapshot_round_trip(self) -> None:
+        complex_id = self.complex_repository.create(
+            name="Reference Postgres Complex",
+            sido="Seoul",
+            sigungu="Yangcheon-gu",
+            dong="Mok-dong",
+            address="Seoul Yangcheon-gu Mok-dong",
+            build_year=2018,
+            household_count=900,
+            lat=None,
+            lng=None,
+            memo=None,
+        )
+        finance_profile_id = self.finance_repository.create(
+            cash_amount=350_000_000,
+            annual_income=120_000_000,
+            existing_debt=0,
+            interest_rate=0.04,
+            ltv_limit=0.6,
+            dsr_limit=0.4,
+        )
+
+        self.sale_repository.bulk_create(
+            [
+                self._sale_tx(complex_id, "2026-03-15", 880_000_000),
+                self._sale_tx(complex_id, "2026-04-15", 900_000_000),
+                self._sale_tx(complex_id, "2026-05-15", 920_000_000),
+            ]
+        )
+        self.rent_repository.bulk_create(
+            [
+                self._rent_tx(complex_id, "2026-03-15", 500_000_000),
+                self._rent_tx(complex_id, "2026-04-15", 510_000_000),
+                self._rent_tx(complex_id, "2026-05-10", 520_000_000),
+            ]
+        )
+
+        self.analysis_service.run_complex_area_analysis(
+            complex_id=complex_id,
+            area_m2=84.9,
+            finance_profile_id=finance_profile_id,
+            benchmarks=BenchmarkInputs(reference_date=date(2026, 6, 13)),
+            save_result=True,
+        )
+
+        latest = self.analysis_repository.get_latest_by_complex_area(
+            complex_id=complex_id,
+            area_bucket=84.9,
+        )
+        self.assertIsNotNone(latest)
+        assert latest is not None
+        self.assertEqual(latest["target_type"], "COMPLEX_AREA")
+        self.assertIsNone(latest["listing_id"])
+        self.assertEqual(latest["price_source"], "TRANSACTION_REFERENCE")
+        self.assertEqual(latest["effective_price_snapshot"], 900_000_000)
+        self.assertEqual(latest["reference_price"], 900_000_000)
+
     def _sale_tx(self, complex_id: int, deal_date: str, price: int) -> dict:
         year, month, day = (int(part) for part in deal_date.split("-"))
         return {

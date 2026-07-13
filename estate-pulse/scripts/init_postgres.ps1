@@ -78,9 +78,13 @@ if (-not $AdminPassword) {
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$schemaPath = Join-Path $repoRoot "migrations\postgres\0001_initial_schema.sql"
-if (-not (Test-Path $schemaPath)) {
-    throw "Schema file not found: $schemaPath"
+$migrationDir = Join-Path $repoRoot "migrations\postgres"
+if (-not (Test-Path $migrationDir)) {
+    throw "Migration directory not found: $migrationDir"
+}
+$schemaPaths = Get-ChildItem -Path $migrationDir -Filter *.sql | Sort-Object Name
+if (-not $schemaPaths) {
+    throw "No PostgreSQL migration files were found under: $migrationDir"
 }
 
 $psqlPath = Get-PsqlPath
@@ -108,7 +112,7 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = '$TestDatabaseName')
 \gexec
 "@
 
-$appSchemaScript = Get-Content -LiteralPath $schemaPath -Raw
+$appSchemaScript = ($schemaPaths | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw }) -join "`n"
 $ownershipScript = @"
 ALTER SCHEMA public OWNER TO $RoleName;
 GRANT USAGE, CREATE ON SCHEMA public TO $RoleName;

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import calendar
 from datetime import date, datetime
+import math
 
 
 def calculate_recent_sale_average(
@@ -109,6 +110,48 @@ def calculate_drop_rate_from_one_year_high(
     return (one_year_high_sale_price - sale_price) / one_year_high_sale_price * 100
 
 
+def calculate_reference_price_metadata(
+    sale_transactions: list[dict],
+    *,
+    reference_date: date | None = None,
+) -> dict | None:
+    """Build recent-transaction reference price metadata for one complex/area bucket."""
+    target_date = reference_date or date.today()
+    sample_transactions = _select_reference_sample_transactions(
+        sale_transactions,
+        reference_date=target_date,
+    )
+    if not sample_transactions:
+        return None
+
+    reference_price = _weighted_median_price(
+        sample_transactions,
+        reference_date=target_date,
+    )
+    latest_transaction = max(sample_transactions, key=_parse_transaction_date)
+    latest_transaction_date = _parse_transaction_date(latest_transaction)
+    latest_transaction_price = int(latest_transaction["price"])
+    prices = [int(item["price"]) for item in sample_transactions]
+
+    return {
+        "reference_price": reference_price,
+        "sample_count": len(sample_transactions),
+        "latest_transaction_date": latest_transaction_date.isoformat(),
+        "latest_transaction_price": latest_transaction_price,
+        "sample_min_price": min(prices),
+        "sample_max_price": max(prices),
+        "confidence": _reference_confidence(
+            sample_count=len(sample_transactions),
+            latest_transaction_date=latest_transaction_date,
+            reference_date=target_date,
+        ),
+        "volatility_status": _reference_volatility_status(
+            sample_transactions=sample_transactions,
+            reference_price=reference_price,
+        ),
+    }
+
+
 def filter_recent_transactions(
     transactions: list[dict],
     *,
@@ -120,7 +163,23 @@ def filter_recent_transactions(
     return [
         item
         for item in transactions
+        if not _is_canceled_transaction(item)
         if cutoff_date <= _parse_transaction_date(item) <= target_date
+    ]
+
+
+def filter_recent_transactions_by_days(
+    transactions: list[dict],
+    *,
+    days: int,
+    reference_date: date | None = None,
+) -> list[dict]:
+    target_date = reference_date or date.today()
+    return [
+        item
+        for item in transactions
+        if not _is_canceled_transaction(item)
+        if 0 <= (target_date - _parse_transaction_date(item)).days <= days
     ]
 
 
@@ -143,3 +202,100 @@ def _subtract_months(target_date: date, months: int) -> date:
 
     day = min(target_date.day, calendar.monthrange(year, month_index)[1])
     return date(year, month_index, day)
+
+
+def _select_reference_sample_transactions(
+    sale_transactions: list[dict],
+    *,
+    reference_date: date,
+) -> list[dict]:
+    for window_days in (90, 180, 270, 365):
+        sample_transactions = filter_recent_transactions_by_days(
+            sale_transactions,
+            days=window_days,
+            reference_date=reference_date,
+        )
+        if len(sample_transactions) >= 3:
+            return sample_transactions
+
+    fallback_transactions = filter_recent_transactions_by_days(
+        sale_transactions,
+        days=365,
+        reference_date=reference_date,
+    )
+    return fallback_transactions if fallback_transactions else []
+
+
+def _weighted_median_price(
+    sale_transactions: list[dict],
+    *,
+    reference_date: date,
+) -> int:
+    weighted_prices = sorted(
+        (
+            (
+                int(item["price"]),
+                math.exp(
+                    -math.log(2)
+                    * (reference_date - _parse_transaction_date(item)).days
+                    / 45
+                ),
+            )
+            for item in sale_transactions
+        ),
+        key=lambda item: item[0],
+    )
+    total_weight = sum(weight for _, weight in weighted_prices)
+    half_weight = total_weight / 2
+    cumulative_weight = 0.0
+    for price, weight in weighted_prices:
+        cumulative_weight += weight
+        if cumulative_weight >= half_weight:
+            return price
+    return weighted_prices[-1][0]
+
+
+def _reference_confidence(
+    *,
+    sample_count: int,
+    latest_transaction_date: date,
+    reference_date: date,
+) -> str:
+    if sample_count <= 2:
+        return "LOW"
+    latest_age_days = (reference_date - latest_transaction_date).days
+    if sample_count >= 3 and latest_age_days <= 60:
+        return "HIGH"
+    if sample_count >= 3 and latest_age_days <= 90:
+        return "MEDIUM"
+    return "LOW"
+
+
+def _reference_volatility_status(
+    *,
+    sample_transactions: list[dict],
+    reference_price: int,
+) -> str:
+    if len(sample_transactions) < 2 or reference_price <= 0:
+        return "INSUFFICIENT_DATA"
+
+    latest_transaction = max(sample_transactions, key=_parse_transaction_date)
+    latest_transaction_price = int(latest_transaction["price"])
+    change_rate = (latest_transaction_price - reference_price) / reference_price * 100
+    if change_rate >= 5:
+        return "RAPID_RISE"
+    if change_rate <= -5:
+        return "RAPID_FALL"
+    return "STABLE"
+
+
+def _is_canceled_transaction(transaction: dict) -> bool:
+    return bool(
+        transaction.get("is_canceled")
+        or transaction.get("is_cancelled")
+        or transaction.get("cancelled")
+        or transaction.get("canceled")
+        or transaction.get("canceled_at")
+        or transaction.get("cancelled_at")
+        or transaction.get("cancel_date")
+    )

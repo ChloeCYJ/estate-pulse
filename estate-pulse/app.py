@@ -31,14 +31,14 @@ from modules.services.region_policy_service import RegionPolicyService
 from modules.services.rule_admin_service import RuleAdminService
 from modules.services.rule_runtime_service import RuleRuntimeService
 from modules.ui.admin_view import render_admin_page
-from modules.ui.analysis_view import render_analysis_page
+from modules.ui.analysis_view_refined import render_analysis_page
 from modules.ui.comparison_view import render_comparison_page
 from modules.ui.complex_form import render_complex_page
 from modules.ui.dashboard import render_dashboard_page
 from modules.ui.finance_profile_form import render_finance_profile_page
 from modules.ui.listing_form import render_listing_page
-from modules.ui.ranking_view import render_ranking_page
-from modules.ui.watchlist_view import render_watchlist_page
+from modules.ui.ranking_view_refined import render_ranking_page
+from modules.ui.watchlist_view_refined import render_watchlist_page
 
 
 def main() -> None:
@@ -106,6 +106,7 @@ def main() -> None:
         policy_event_service=policy_event_service,
     )
     opportunity_service = OpportunityService(
+        complex_repository=complex_repository,
         listing_repository=listing_repository,
         analysis_repository=analysis_repository,
         watchlist_repository=watchlist_repository,

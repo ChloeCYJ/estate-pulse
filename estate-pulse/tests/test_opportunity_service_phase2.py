@@ -56,8 +56,10 @@ class OpportunityServicePhase2Tests(unittest.TestCase):
             sale_transaction_repository=self.sale_repository,
             rent_transaction_repository=self.rent_repository,
             market_scoring_service=self.market_scoring_service,
+            complex_repository=self.complex_repository,
         )
         self.opportunity_service = OpportunityService(
+            complex_repository=self.complex_repository,
             listing_repository=self.listing_repository,
             analysis_repository=self.analysis_repository,
             watchlist_repository=self.watchlist_repository,
@@ -97,6 +99,18 @@ class OpportunityServicePhase2Tests(unittest.TestCase):
             lng=None,
             memo=None,
         )
+        self.gamma_complex_id = self.complex_repository.create(
+            name="Gamma River",
+            sido="Seoul",
+            sigungu="Gangnam",
+            dong="Yeoksam",
+            address="Yeoksam",
+            build_year=2015,
+            household_count=420,
+            lat=None,
+            lng=None,
+            memo=None,
+        )
         self.alpha_listing_id = self.listing_repository.create(
             complex_id=self.alpha_complex_id,
             area_m2=84.9,
@@ -132,6 +146,9 @@ class OpportunityServicePhase2Tests(unittest.TestCase):
                 self._sale_tx(self.alpha_complex_id, "Alpha Palace", "2026-05-15", 1_000_000_000),
                 self._sale_tx(self.beta_complex_id, "Beta Hills", "2026-01-20", 810_000_000),
                 self._sale_tx(self.beta_complex_id, "Beta Hills", "2026-05-20", 820_000_000),
+                self._sale_tx(self.gamma_complex_id, "Gamma River", "2026-03-10", 700_000_000),
+                self._sale_tx(self.gamma_complex_id, "Gamma River", "2026-04-10", 710_000_000),
+                self._sale_tx(self.gamma_complex_id, "Gamma River", "2026-05-10", 720_000_000),
             ]
         )
         self.rent_repository.bulk_create(
@@ -143,6 +160,9 @@ class OpportunityServicePhase2Tests(unittest.TestCase):
                 self._rent_tx(self.alpha_complex_id, "Alpha Palace", "2026-05-10", 380_000_000),
                 self._rent_tx(self.beta_complex_id, "Beta Hills", "2026-02-10", 180_000_000),
                 self._rent_tx(self.beta_complex_id, "Beta Hills", "2026-05-10", 200_000_000),
+                self._rent_tx(self.gamma_complex_id, "Gamma River", "2026-03-05", 300_000_000),
+                self._rent_tx(self.gamma_complex_id, "Gamma River", "2026-04-05", 310_000_000),
+                self._rent_tx(self.gamma_complex_id, "Gamma River", "2026-05-05", 320_000_000),
             ]
         )
 
@@ -169,6 +189,45 @@ class OpportunityServicePhase2Tests(unittest.TestCase):
 
         self.assertEqual(rows[0]["listing_id"], self.alpha_listing_id)
         self.assertGreater(rows[0]["investment_score"], rows[1]["investment_score"])
+
+    def test_ranking_includes_transaction_reference_candidate_when_listing_is_missing(self) -> None:
+        rows = self.opportunity_service.rank_listings(
+            finance_profile_id=self.finance_profile_id,
+            ranking_type="investment_score",
+        )
+
+        gamma_row = next(
+            row for row in rows if row["complex_id"] == self.gamma_complex_id
+        )
+        self.assertIsNone(gamma_row["listing_id"])
+        self.assertEqual(gamma_row["price_source"], "TRANSACTION_REFERENCE")
+        self.assertTrue(gamma_row["analysis_available"])
+
+    def test_ranking_deduplicates_same_complex_and_area_when_multiple_listings_exist(self) -> None:
+        self.listing_repository.create(
+            complex_id=self.alpha_complex_id,
+            area_m2=84.8,
+            sale_price=910_000_000,
+            expected_jeonse_price=0,
+            investment_type="GAP_INVESTMENT",
+            floor="15",
+            direction="S",
+            condition_memo="",
+            source_memo="",
+            checked_at="2026-05-30",
+        )
+
+        rows = self.opportunity_service.rank_listings(
+            finance_profile_id=self.finance_profile_id,
+            ranking_type="investment_score",
+        )
+
+        alpha_rows = [
+            row
+            for row in rows
+            if row["complex_id"] == self.alpha_complex_id and round(float(row["area_bucket"]), 1) == 84.9
+        ]
+        self.assertEqual(len(alpha_rows), 1)
 
     def test_comparison_handles_listing_without_transaction_data(self) -> None:
         orphan_listing_id = self.listing_repository.create(
@@ -213,6 +272,18 @@ class OpportunityServicePhase2Tests(unittest.TestCase):
         self.assertEqual(listing_row["representative_listing_id"], self.alpha_listing_id)
         self.assertEqual(complex_row["complex_listing_count"], 1)
         self.assertEqual(listing_row["complex_listing_count"], 1)
+
+    def test_watchlist_uses_transaction_reference_candidate_for_complex_without_listing(self) -> None:
+        self.watchlist_repository.add_complex(self.gamma_complex_id)
+
+        rows = self.opportunity_service.build_watchlist(
+            finance_profile_id=self.finance_profile_id,
+        )
+
+        gamma_row = next(item for item in rows if item["complex_id"] == self.gamma_complex_id)
+        self.assertIsNone(gamma_row["listing_id"])
+        self.assertEqual(gamma_row["price_source"], "TRANSACTION_REFERENCE")
+        self.assertEqual(gamma_row["summary_basis"], "실거래 기준 후보")
 
     def _sale_tx(self, complex_id: int, complex_name: str, deal_date: str, price: int) -> dict:
         year, month, day = (int(part) for part in deal_date.split("-"))

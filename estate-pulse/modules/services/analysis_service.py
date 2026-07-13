@@ -18,6 +18,7 @@ from modules.analyzers.ranking_analyzer import calculate_overall_investment_scor
 from modules.analyzers.risk_analyzer import summarize_risk
 from modules.analyzers.tax_analyzer import calculate_tax_breakdown
 from modules.analyzers.transaction_analyzer import (
+    calculate_reference_price_metadata,
     calculate_latest_rent_deposit_average,
     calculate_one_year_high_sale_price,
     calculate_one_year_low_sale_price,
@@ -25,6 +26,7 @@ from modules.analyzers.transaction_analyzer import (
     calculate_recent_3_month_sale_average,
     calculate_recent_6_month_sale_average,
 )
+from modules.repositories.analysis_repository import TARGET_TYPE_COMPLEX_AREA, TARGET_TYPE_LISTING
 from modules.services.report_service import build_analysis_summary
 
 OWNER_OCCUPIED = "OWNER_OCCUPIED"
@@ -64,6 +66,28 @@ class BenchmarkInputs:
     funding_mode: str = CASH_ONLY
 
 
+@dataclass
+class ResolvedAnalysisSubject:
+    complex_id: int
+    complex_name: str
+    area_bucket: float
+    listing_id: int | None
+    effective_price: int
+    price_source: str
+    reference_price_metadata: dict | None
+    effective_investment_type: str
+    asking_price: int | None = None
+    expected_jeonse_price: int = 0
+    takeover_jeonse_deposit: int = 0
+    rent_deposit: int = 0
+    expected_monthly_rent: int = 0
+    floor: str = ""
+    direction: str = ""
+    condition_memo: str = ""
+    source_memo: str = ""
+    checked_at: str | None = None
+
+
 class AnalysisService:
     def __init__(
         self,
@@ -101,16 +125,39 @@ class AnalysisService:
         save_result: bool = True,
     ) -> dict:
         listing = self.listing_repository.get(listing_id)
-        finance_profile = self.finance_repository.get(finance_profile_id)
-
         if not listing:
             raise ValueError("Listing not found.")
+        return self.run_complex_area_analysis(
+            complex_id=int(listing["complex_id"]),
+            area_m2=float(listing["area_m2"]),
+            listing_id=listing_id,
+            finance_profile_id=finance_profile_id,
+            benchmarks=benchmarks,
+            save_result=save_result,
+        )
+
+    def run_complex_area_analysis(
+        self,
+        *,
+        complex_id: int,
+        area_m2: float,
+        finance_profile_id: int,
+        benchmarks: BenchmarkInputs,
+        listing_id: int | None = None,
+        save_result: bool = True,
+    ) -> dict:
+        finance_profile = self.finance_repository.get(finance_profile_id)
         if not finance_profile:
             raise ValueError("Finance profile not found.")
-        listing = dict(listing)
+
+        subject = self._resolve_analysis_subject(
+            complex_id=complex_id,
+            area_m2=area_m2,
+            listing_id=listing_id,
+            reference_date=benchmarks.reference_date,
+            sale_price_override=benchmarks.sale_price_override,
+        )
         finance_profile = dict(finance_profile)
-        if benchmarks.sale_price_override is not None:
-            listing["sale_price"] = int(benchmarks.sale_price_override)
         if benchmarks.interest_rate_override is not None:
             finance_profile["interest_rate"] = float(benchmarks.interest_rate_override)
         funding_mode = _normalize_funding_mode(benchmarks.funding_mode)
@@ -125,8 +172,7 @@ class AnalysisService:
         )
 
         stored_investment_type = (
-            listing.get("effective_investment_type")
-            or listing.get("investment_type")
+            subject.effective_investment_type
             or OWNER_OCCUPIED
         )
         primary_user_mode = benchmarks.analysis_mode or _to_primary_user_mode(
@@ -138,18 +184,20 @@ class AnalysisService:
         )
         analysis_purpose = OWNER_OCCUPIED if primary_user_mode == OWNER_OCCUPIED else benchmarks.purpose
         market_context = self.get_transaction_context(
-            listing_id=listing_id,
+            complex_id=subject.complex_id,
+            area_m2=subject.area_bucket,
             benchmarks=benchmarks,
             reference_date=benchmarks.reference_date,
         )
+        listing_payload = self._build_listing_payload(subject)
 
         complex_row = (
-            self.complex_repository.get(int(listing["complex_id"]))
+            self.complex_repository.get(int(subject.complex_id))
             if self.complex_repository is not None
             else None
         )
         region_context = self._resolve_region_context(
-            listing=listing,
+            listing=listing_payload,
             complex_row=complex_row,
             manual_region_type=benchmarks.region_type,
             reference_date=benchmarks.reference_date,
@@ -167,7 +215,7 @@ class AnalysisService:
             else None
         )
         loan_rule_buyer_type = _resolve_loan_rule_buyer_type(
-            sale_price=listing["sale_price"],
+            sale_price=subject.effective_price,
             region_type=region_context["region_type"],
             buyer_type=resolved_buyer_type,
             purpose=analysis_purpose,
@@ -175,7 +223,7 @@ class AnalysisService:
             rules=active_loan_rules,
         )
         loan_terms = calculate_loan_terms(
-            sale_price=listing["sale_price"],
+            sale_price=subject.effective_price,
             region_type=region_context["region_type"],
             buyer_type=loan_rule_buyer_type,
             purpose=analysis_purpose,
@@ -201,7 +249,7 @@ class AnalysisService:
             else None
         )
         tax_breakdown = calculate_tax_breakdown(
-            sale_price=int(listing["sale_price"]),
+            sale_price=subject.effective_price,
             rule_version=benchmarks.tax_rule_version,
             rule=active_tax_rule,
             acquisition_tax_override=benchmarks.acquisition_tax_override,
@@ -216,7 +264,7 @@ class AnalysisService:
             else None
         )
         brokerage_breakdown = calculate_brokerage_breakdown(
-            sale_price=int(listing["sale_price"]),
+            sale_price=subject.effective_price,
             rule_version=benchmarks.brokerage_rule_version,
             rule=active_brokerage_rule,
             brokerage_fee_override=benchmarks.brokerage_fee_override,
@@ -236,7 +284,7 @@ class AnalysisService:
 
         if primary_user_mode == OWNER_OCCUPIED:
             mode_metrics = calculate_owner_occupied_metrics(
-                sale_price=listing["sale_price"],
+                sale_price=subject.effective_price,
                 estimated_loan=expected_loan_amount,
                 acquisition_cost_total=acquisition_cost_total,
                 cash_amount=int(purchase_power["available_cash_for_purchase"]),
@@ -253,13 +301,13 @@ class AnalysisService:
         else:
             mode_metrics = calculate_investment_metrics(
                 investment_type=investment_type,
-                sale_price=listing["sale_price"],
+                sale_price=subject.effective_price,
                 estimated_loan=expected_loan_amount,
                 acquisition_cost_total=acquisition_cost_total,
                 expected_jeonse_price=market_context["derived_inputs"]["expected_jeonse_price"],
-                takeover_jeonse_deposit=int(listing.get("takeover_jeonse_deposit") or 0),
-                rent_deposit=int(listing.get("rent_deposit") or 0),
-                expected_monthly_rent=int(listing.get("expected_monthly_rent") or 0),
+                takeover_jeonse_deposit=subject.takeover_jeonse_deposit,
+                rent_deposit=subject.rent_deposit,
+                expected_monthly_rent=subject.expected_monthly_rent,
             )
             required_cash = int(mode_metrics["required_cash"])
             shortage_cash = calculate_shortage_cash(
@@ -274,10 +322,10 @@ class AnalysisService:
 
         jeonse_ratio = calculate_jeonse_ratio(
             market_context["derived_inputs"]["expected_jeonse_price"],
-            listing["sale_price"],
+            subject.effective_price,
         )
         bargain_result = calculate_bargain_score(
-            sale_price=listing["sale_price"],
+            sale_price=subject.effective_price,
             recent_avg_price=market_context["derived_inputs"]["recent_avg_price"],
             one_year_high_price=market_context["derived_inputs"]["one_year_high_price"],
             expected_jeonse_price=market_context["derived_inputs"]["expected_jeonse_price"],
@@ -285,7 +333,7 @@ class AnalysisService:
             user_cash=int(purchase_power["available_cash_for_purchase"]),
         )
         complex_profile = self._get_complex_profile(
-            complex_id=int(listing["complex_id"]),
+            complex_id=int(subject.complex_id),
             reference_date=benchmarks.reference_date,
         )
         investment_score_result = calculate_overall_investment_score(
@@ -293,7 +341,7 @@ class AnalysisService:
             liquidity_score=int(complex_profile["liquidity_score"]),
             complex_grade=str(complex_profile["complex_grade"]),
             required_cash=required_cash,
-            sale_price=int(listing["sale_price"]),
+            sale_price=subject.effective_price,
             shortage_cash=shortage_cash,
         )
         risks = summarize_risk(
@@ -306,8 +354,8 @@ class AnalysisService:
         )
         summary = build_analysis_summary(
             primary_user_mode=primary_user_mode,
-            complex_name=listing["complex_name"],
-            listing=listing,
+            complex_name=subject.complex_name,
+            listing=listing_payload,
             finance_profile=finance_profile,
             expected_jeonse_price=market_context["derived_inputs"]["expected_jeonse_price"],
             required_cash=required_cash,
@@ -326,7 +374,7 @@ class AnalysisService:
         )
         applied_rules = _build_applied_rules_trace(
             primary_user_mode=primary_user_mode,
-            listing=listing,
+            listing=listing_payload,
             finance_profile=finance_profile,
             benchmarks=benchmarks,
             loan_terms=loan_terms,
@@ -338,11 +386,16 @@ class AnalysisService:
         )
 
         result = {
-            "listing_id": listing_id,
+            "listing_id": subject.listing_id,
             "investment_type": investment_type,
             "primary_user_mode": primary_user_mode,
-            "complex_name": listing["complex_name"],
-            "sale_price": listing["sale_price"],
+            "complex_id": subject.complex_id,
+            "area_bucket": subject.area_bucket,
+            "complex_name": subject.complex_name,
+            "sale_price": subject.effective_price,
+            "asking_price": subject.asking_price,
+            "price_source": subject.price_source,
+            "reference_price_metadata": subject.reference_price_metadata,
             "expected_jeonse_price": market_context["derived_inputs"]["expected_jeonse_price"],
             "expected_loan_amount": expected_loan_amount,
             "loan_rule_version": loan_terms["rule_version"],
@@ -379,9 +432,9 @@ class AnalysisService:
             "scenario_explanation": mode_metrics["scenario_explanation"],
             "scenario_inputs": {
                 "expected_jeonse_price": market_context["derived_inputs"]["expected_jeonse_price"],
-                "takeover_jeonse_deposit": int(listing.get("takeover_jeonse_deposit") or 0),
-                "rent_deposit": int(listing.get("rent_deposit") or 0),
-                "expected_monthly_rent": int(listing.get("expected_monthly_rent") or 0),
+                "takeover_jeonse_deposit": subject.takeover_jeonse_deposit,
+                "rent_deposit": subject.rent_deposit,
+                "expected_monthly_rent": subject.expected_monthly_rent,
             },
             "costs": {
                 "acquisition_tax": tax_breakdown["acquisition_tax"],
@@ -413,76 +466,133 @@ class AnalysisService:
                 "required_cash_efficiency_score"
             ],
             "investment_score_rule_version": investment_score_result["rule_version"],
+            "save_result_available": True,
         }
 
         if save_result:
             analysis_id = self.analysis_repository.create(
-                {
-                    "listing_id": listing_id,
-                    "finance_profile_id": finance_profile_id,
-                    "investment_type": investment_type,
-                    "required_cash": required_cash,
-                    "shortage_cash": shortage_cash,
-                    "current_required_cash": current_required_cash,
-                    "future_required_cash": future_required_cash,
-                    "monthly_cash_flow": monthly_cash_flow,
-                    "acquisition_tax": tax_breakdown["acquisition_tax"],
-                    "local_education_tax": tax_breakdown["local_education_tax"],
-                    "brokerage_fee": brokerage_breakdown["brokerage_fee"],
-                    "legal_fee": brokerage_breakdown["legal_fee"],
-                    "reserve_cost": brokerage_breakdown["reserve_cost"],
-                    "total_transaction_cost": total_transaction_cost,
-                    "applied_tax_rule_version": tax_breakdown["applied_tax_rule_version"],
-                    "applied_brokerage_rule_version": brokerage_breakdown[
-                        "applied_brokerage_rule_version"
-                    ],
-                    "liquidity_score": complex_profile["liquidity_score"],
-                    "investment_score": investment_score_result["investment_score"],
-                    "complex_grade": complex_profile["complex_grade"],
-                    "sale_price_snapshot": listing["sale_price"],
-                    "jeonse_price_snapshot": market_context["derived_inputs"][
-                        "expected_jeonse_price"
-                    ],
-                    "area_m2_snapshot": listing.get("area_m2"),
-                    "complex_name_snapshot": listing["complex_name"],
-                    "available_cash_snapshot": purchase_power["available_cash_for_purchase"],
-                    "annual_income_snapshot": finance_profile.get("annual_income"),
-                    "buyer_type_snapshot": resolved_buyer_type,
-                    "expected_loan_amount": expected_loan_amount,
-                    "monthly_repayment": mode_metrics.get("monthly_repayment"),
-                    "jeonse_ratio": jeonse_ratio,
-                    "discount_vs_recent_avg": bargain_result["discount_rate"],
-                    "drop_from_high": bargain_result["drop_from_high"],
-                    "bargain_score": bargain_result["score"],
-                    "loan_rule_version": loan_terms["rule_version"],
-                    "decision": decision,
-                    "summary": summary,
-                }
+                self._build_analysis_snapshot_payload(
+                    subject=subject,
+                    finance_profile_id=finance_profile_id,
+                    finance_profile=finance_profile,
+                    purchase_power=purchase_power,
+                    resolved_buyer_type=resolved_buyer_type,
+                    investment_type=investment_type,
+                    required_cash=required_cash,
+                    shortage_cash=shortage_cash,
+                    current_required_cash=current_required_cash,
+                    future_required_cash=future_required_cash,
+                    monthly_cash_flow=monthly_cash_flow,
+                    tax_breakdown=tax_breakdown,
+                    brokerage_breakdown=brokerage_breakdown,
+                    total_transaction_cost=total_transaction_cost,
+                    complex_profile=complex_profile,
+                    investment_score_result=investment_score_result,
+                    expected_loan_amount=expected_loan_amount,
+                    monthly_repayment=mode_metrics.get("monthly_repayment"),
+                    expected_jeonse_price=market_context["derived_inputs"]["expected_jeonse_price"],
+                    jeonse_ratio=jeonse_ratio,
+                    bargain_result=bargain_result,
+                    loan_rule_version=loan_terms["rule_version"],
+                    decision=decision,
+                    summary=summary,
+                )
             )
             result["analysis_id"] = analysis_id
 
         return result
 
+    def list_complex_area_options(self, *, complex_id: int) -> list[dict]:
+        complex_row = (
+            self.complex_repository.get(complex_id)
+            if self.complex_repository is not None
+            else None
+        )
+        if not complex_row:
+            return []
+
+        listings = self.list_matching_listings(complex_id=complex_id, area_m2=None)
+        sale_transactions = [
+            item
+            for item in self.sale_transaction_repository.list_all()
+            if int(item.get("complex_id") or 0) == int(complex_id)
+        ]
+        rent_transactions = [
+            item
+            for item in self.rent_transaction_repository.list_all()
+            if int(item.get("complex_id") or 0) == int(complex_id)
+        ]
+        area_values = [
+            float(item["area_m2"])
+            for item in [*listings, *sale_transactions, *rent_transactions]
+            if item.get("area_m2") is not None
+        ]
+        options = []
+        for area_bucket in _cluster_area_values(area_values):
+            options.append(
+                {
+                    "complex_id": complex_id,
+                    "complex_name": complex_row.get("name"),
+                    "area_bucket": area_bucket,
+                    "listing_count": len(
+                        self.list_matching_listings(
+                            complex_id=complex_id,
+                            area_m2=area_bucket,
+                        )
+                    ),
+                    "sale_transaction_count": len(
+                        self.sale_transaction_repository.list_by_complex_area(
+                            complex_id=complex_id,
+                            area_m2=area_bucket,
+                        )
+                    ),
+                }
+            )
+        return options
+
+    def list_matching_listings(
+        self,
+        *,
+        complex_id: int,
+        area_m2: float | None,
+    ) -> list[dict]:
+        listings = self.listing_repository.list_by_complex(complex_id)
+        if area_m2 is None:
+            return listings
+        return [
+            item
+            for item in listings
+            if abs(float(item.get("area_m2") or 0.0) - float(area_m2)) <= 5.0
+        ]
+
     def get_transaction_context(
         self,
         *,
-        listing_id: int,
+        listing_id: int | None = None,
+        complex_id: int | None = None,
+        area_m2: float | None = None,
         benchmarks: BenchmarkInputs | None = None,
         reference_date: date | None = None,
     ) -> dict:
-        listing = self.listing_repository.get(listing_id)
-        if not listing:
-            raise ValueError("Listing not found.")
+        listing: dict | None = None
+        if listing_id is not None:
+            listing = self.listing_repository.get(listing_id)
+            if not listing:
+                raise ValueError("Listing not found.")
+            complex_id = int(listing["complex_id"])
+            area_m2 = float(listing["area_m2"])
+        if complex_id is None or area_m2 is None:
+            raise ValueError("Analysis target is incomplete.")
 
         benchmarks = benchmarks or BenchmarkInputs()
         target_date = reference_date or date.today()
         sale_history = self.sale_transaction_repository.list_by_complex_area(
-            complex_id=int(listing["complex_id"]),
-            area_m2=float(listing["area_m2"]),
+            complex_id=int(complex_id),
+            area_m2=float(area_m2),
         )
         rent_history = self.rent_transaction_repository.list_by_complex_area(
-            complex_id=int(listing["complex_id"]),
-            area_m2=float(listing["area_m2"]),
+            complex_id=int(complex_id),
+            area_m2=float(area_m2),
         )
 
         sale_avg_3m = calculate_recent_3_month_sale_average(
@@ -509,6 +619,10 @@ class AnalysisService:
             rent_history,
             reference_date=target_date,
         )
+        reference_price_metadata = calculate_reference_price_metadata(
+            sale_history,
+            reference_date=target_date,
+        )
 
         recent_avg_price, recent_avg_source = self._resolve_recent_avg_price(
             override=benchmarks.recent_avg_price_override,
@@ -520,7 +634,7 @@ class AnalysisService:
             one_year_high=one_year_high,
         )
         expected_jeonse_price, expected_jeonse_source = self._resolve_expected_jeonse_price(
-            listing=listing,
+            listing=listing or {},
             override=benchmarks.expected_jeonse_price_override,
             latest_rent_deposit_avg=latest_rent_deposit_avg,
         )
@@ -546,6 +660,7 @@ class AnalysisService:
                 "one_year_high_price": one_year_high_price,
                 "expected_jeonse_price": expected_jeonse_price,
             },
+            "reference_price_metadata": reference_price_metadata,
             "sources": {
                 "recent_avg_price": recent_avg_source,
                 "one_year_high_price": one_year_high_source,
@@ -675,6 +790,180 @@ class AnalysisService:
             investment_purpose=investment_purpose,
             include_future=True,
         )
+
+    def _resolve_analysis_subject(
+        self,
+        *,
+        complex_id: int,
+        area_m2: float,
+        listing_id: int | None,
+        reference_date: date | None,
+        sale_price_override: int | None,
+    ) -> ResolvedAnalysisSubject:
+        complex_row = (
+            self.complex_repository.get(complex_id)
+            if self.complex_repository is not None
+            else None
+        )
+        complex_name = (
+            str(complex_row.get("name"))
+            if complex_row and complex_row.get("name")
+            else "-"
+        )
+        reference_metadata = calculate_reference_price_metadata(
+            self.sale_transaction_repository.list_by_complex_area(
+                complex_id=complex_id,
+                area_m2=area_m2,
+            ),
+            reference_date=reference_date,
+        )
+
+        if listing_id is not None:
+            listing = self.listing_repository.get(listing_id)
+            if not listing:
+                raise ValueError("Listing not found.")
+            effective_price = int(sale_price_override or listing["sale_price"])
+            return ResolvedAnalysisSubject(
+                complex_id=int(listing["complex_id"]),
+                complex_name=str(listing["complex_name"]),
+                area_bucket=float(listing["area_m2"]),
+                listing_id=int(listing_id),
+                effective_price=effective_price,
+                price_source="LISTING",
+                reference_price_metadata=reference_metadata,
+                effective_investment_type=str(
+                    listing.get("effective_investment_type")
+                    or listing.get("investment_type")
+                    or OWNER_OCCUPIED
+                ),
+                asking_price=int(listing["sale_price"]),
+                expected_jeonse_price=int(listing.get("expected_jeonse_price") or 0),
+                takeover_jeonse_deposit=int(listing.get("takeover_jeonse_deposit") or 0),
+                rent_deposit=int(listing.get("rent_deposit") or 0),
+                expected_monthly_rent=int(listing.get("expected_monthly_rent") or 0),
+                floor=str(listing.get("floor") or ""),
+                direction=str(listing.get("direction") or ""),
+                condition_memo=str(listing.get("condition_memo") or ""),
+                source_memo=str(listing.get("source_memo") or ""),
+                checked_at=listing.get("checked_at"),
+            )
+
+        if not reference_metadata:
+            raise ValueError("분석 가능한 최근 실거래가 없습니다.")
+
+        return ResolvedAnalysisSubject(
+            complex_id=complex_id,
+            complex_name=complex_name,
+            area_bucket=float(area_m2),
+            listing_id=None,
+            effective_price=int(sale_price_override or reference_metadata["reference_price"]),
+            price_source="TRANSACTION_REFERENCE",
+            reference_price_metadata=reference_metadata,
+            effective_investment_type="GAP_INVESTMENT",
+        )
+
+    def _build_listing_payload(self, subject: ResolvedAnalysisSubject) -> dict:
+        return {
+            "complex_id": subject.complex_id,
+            "complex_name": subject.complex_name,
+            "area_m2": subject.area_bucket,
+            "sale_price": subject.effective_price,
+            "expected_jeonse_price": subject.expected_jeonse_price,
+            "takeover_jeonse_deposit": subject.takeover_jeonse_deposit,
+            "rent_deposit": subject.rent_deposit,
+            "expected_monthly_rent": subject.expected_monthly_rent,
+            "effective_investment_type": subject.effective_investment_type,
+            "floor": subject.floor,
+            "direction": subject.direction,
+            "condition_memo": subject.condition_memo,
+            "source_memo": subject.source_memo,
+            "checked_at": subject.checked_at,
+        }
+
+    def _build_analysis_snapshot_payload(
+        self,
+        *,
+        subject: ResolvedAnalysisSubject,
+        finance_profile_id: int,
+        finance_profile: dict,
+        purchase_power: dict,
+        resolved_buyer_type: str,
+        investment_type: str,
+        required_cash: int,
+        shortage_cash: int,
+        current_required_cash: int | None,
+        future_required_cash: int | None,
+        monthly_cash_flow: int | None,
+        tax_breakdown: dict,
+        brokerage_breakdown: dict,
+        total_transaction_cost: int,
+        complex_profile: dict,
+        investment_score_result: dict,
+        expected_loan_amount: int,
+        monthly_repayment: int | None,
+        expected_jeonse_price: int,
+        jeonse_ratio: float,
+        bargain_result: dict,
+        loan_rule_version: str | None,
+        decision: str,
+        summary: str,
+    ) -> dict:
+        reference_metadata = subject.reference_price_metadata or {}
+        return {
+            "target_type": (
+                TARGET_TYPE_LISTING
+                if subject.listing_id is not None
+                else TARGET_TYPE_COMPLEX_AREA
+            ),
+            "listing_id": subject.listing_id,
+            "complex_id": subject.complex_id,
+            "area_bucket": subject.area_bucket,
+            "price_source": subject.price_source,
+            "effective_price_snapshot": subject.effective_price,
+            "reference_price": reference_metadata.get("reference_price"),
+            "sample_count": reference_metadata.get("sample_count"),
+            "latest_transaction_date": reference_metadata.get("latest_transaction_date"),
+            "selected_transaction_min_price": reference_metadata.get("sample_min_price"),
+            "selected_transaction_max_price": reference_metadata.get("sample_max_price"),
+            "confidence": reference_metadata.get("confidence"),
+            "volatility_status": reference_metadata.get("volatility_status"),
+            "finance_profile_id": finance_profile_id,
+            "investment_type": investment_type,
+            "required_cash": required_cash,
+            "shortage_cash": shortage_cash,
+            "current_required_cash": current_required_cash,
+            "future_required_cash": future_required_cash,
+            "monthly_cash_flow": monthly_cash_flow,
+            "acquisition_tax": tax_breakdown["acquisition_tax"],
+            "local_education_tax": tax_breakdown["local_education_tax"],
+            "brokerage_fee": brokerage_breakdown["brokerage_fee"],
+            "legal_fee": brokerage_breakdown["legal_fee"],
+            "reserve_cost": brokerage_breakdown["reserve_cost"],
+            "total_transaction_cost": total_transaction_cost,
+            "applied_tax_rule_version": tax_breakdown["applied_tax_rule_version"],
+            "applied_brokerage_rule_version": brokerage_breakdown[
+                "applied_brokerage_rule_version"
+            ],
+            "liquidity_score": complex_profile["liquidity_score"],
+            "investment_score": investment_score_result["investment_score"],
+            "complex_grade": complex_profile["complex_grade"],
+            "sale_price_snapshot": subject.effective_price,
+            "jeonse_price_snapshot": expected_jeonse_price,
+            "area_m2_snapshot": subject.area_bucket,
+            "complex_name_snapshot": subject.complex_name,
+            "available_cash_snapshot": purchase_power["available_cash_for_purchase"],
+            "annual_income_snapshot": finance_profile.get("annual_income"),
+            "buyer_type_snapshot": resolved_buyer_type,
+            "expected_loan_amount": expected_loan_amount,
+            "monthly_repayment": monthly_repayment,
+            "jeonse_ratio": jeonse_ratio,
+            "discount_vs_recent_avg": bargain_result["discount_rate"],
+            "drop_from_high": bargain_result["drop_from_high"],
+            "bargain_score": bargain_result["score"],
+            "loan_rule_version": loan_rule_version,
+            "decision": decision,
+            "summary": summary,
+        }
 
 
 def _to_primary_user_mode(investment_type: str) -> str:
@@ -1041,3 +1330,14 @@ def _build_decision(*, primary_user_mode: str, shortage_cash: int) -> str:
         if shortage_cash <= 0
         else "투자 검토를 위해 추가 현금이 필요합니다."
     )
+def _cluster_area_values(
+    area_values: list[float],
+    *,
+    tolerance: float = 5.0,
+) -> list[float]:
+    normalized_values = sorted(float(value) for value in area_values)
+    buckets: list[float] = []
+    for value in normalized_values:
+        if not buckets or abs(value - buckets[-1]) > tolerance:
+            buckets.append(value)
+    return buckets
