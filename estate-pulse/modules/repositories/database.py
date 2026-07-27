@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import date, datetime
 import re
 import sqlite3
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable, Iterator, Mapping, Sequence
 
 try:
     import psycopg
@@ -297,21 +298,31 @@ def build_deal_date_sql(database_path: Path | str) -> str:
     return "printf('%04d-%02d-%02d', deal_year, deal_month, deal_day)"
 
 
-def get_connection(database_path: Path | str) -> Any:
+@contextmanager
+def get_connection(database_path: Path | str) -> Iterator[Any]:
+    connection: Any
     if is_postgres_target(database_path):
         if psycopg is None or dict_row is None:
             raise RuntimeError(
                 "PostgreSQL support requires psycopg. Install project dependencies first."
             )
-        return psycopg.connect(str(database_path), row_factory=dict_row)
+        connection = psycopg.connect(str(database_path), row_factory=dict_row)
+    else:
+        sqlite_database_path = Path(database_path)
+        sqlite_database_path.parent.mkdir(parents=True, exist_ok=True)
 
-    sqlite_database_path = Path(database_path)
-    sqlite_database_path.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(sqlite_database_path)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
 
-    connection = sqlite3.connect(sqlite_database_path)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+    try:
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
 
 def initialize_database(database_path: Path | str) -> None:

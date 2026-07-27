@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=77.0.3", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "commercial_ui"
+version = "0.1.0"
+description = "Commercial SearchHome component package for Estate Pulse"
+requires-python = ">=3.14"
+dependencies = [
+  "streamlit==1.59.0",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["commercial_ui"]
+
+[tool.setuptools.package-data]
+commercial_ui = ["pyproject.toml", "frontend/build/**/*"]
+
+[[tool.streamlit.component.components]]
+name = "commercial_ui"
+asset_dir = "frontend/build"

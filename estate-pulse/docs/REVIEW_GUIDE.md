@@ -1,207 +1,68 @@
 # Estate Pulse Review Guide
 
-Estate Pulse 기능 개발 전 Product Owner, Architecture, Documentation 관점의 검토를 표준화하기 위한 문서이다.
+## Purpose
 
-이 문서는 기능을 바로 구현하기 전에 다음을 확인하기 위해 사용한다.
+Use this document to review a proposed change before approval or completion.
+It focuses on scope, regressions, and proof.
 
-- 사용자가 해결하려는 문제가 명확한지
-- 기존 구현과 중복되지 않는지
-- UI, Service, Repository, Analyzer 경계가 유지되는지
-- 정책, 규제, 계산 규칙의 의미가 섞이지 않는지
-- 문서가 실제 구현 상태와 다르게 작성되지 않는지
-- 최소 변경으로 해결 가능한지
-- 기존 Repository, Service, Analyzer, Collector, UI 구현을 먼저 재사용할 수 있는지
+## Inputs
 
-## When To Use
+Review against:
 
-다음 작업을 시작하기 전에 이 가이드를 사용한다.
+- the user request
+- the relevant active plan
+- the changed files
+- the verification commands and results
 
-- 신규 기능 개발
-- 기존 기능의 UX 변경
-- 분석, 점수, 계산 로직 변경
-- 정책 이벤트, 정책 후보, 규칙 엔진, 지역 규제 관련 변경
-- DB 스키마 또는 저장 모델 변경
-- 사용자 메뉴 또는 관리자 메뉴 변경
-- README.md, docs/ARCHITECTURE.md, docs/CODEX_GUIDE.md 현행화
+Use archive documents only when active documents are missing necessary context.
 
-## Review Inputs
+## Scope Checklist
 
-리뷰 전 최소한 아래 자료를 확인한다.
+- Is the requested problem clear?
+- Is the change limited to the requested scope?
+- Does it avoid unrelated refactors?
+- Does it preserve existing user changes outside the requested scope?
 
-- 사용자 요청 또는 기능 요구사항
-- AGENTS.md
-- README.md
-- docs/ARCHITECTURE.md
-- docs/CODEX_GUIDE.md
-- 관련 Entity, Repository, Service, Analyzer, UI 구현
-- 관련 테스트
+## Boundary Checklist
 
-가능하면 현재 상태를 `Already Implemented / Partially Implemented / Missing`으로 나누고, 그 기준으로 최소 변경 범위를 먼저 정리한다.
+- Does Streamlit remain the app shell?
+- Does Python keep business logic, repository access, and external API calls?
+- Do repositories own SQL and persistence?
+- Do analyzers own deterministic calculations?
+- Does React avoid DB access, repository access, external API calls, and calculations?
 
-## Product Owner Review Checklist
+## Regression Checklist
 
-사용자 가치와 제품 동작을 확인한다.
+- Does the change preserve existing analysis behavior unless explicitly changed?
+- Does it preserve SQLite fallback together with PostgreSQL runtime support?
+- Does it keep legacy UI available when rollback is required?
+- Does it avoid protected paths and direct DB-file edits?
 
-- 해결하려는 사용자 문제가 한 문장으로 설명되는가?
-- 대상 사용자가 일반 사용자 기능인지 관리자 기능인지 구분되는가?
-- 사용자 메뉴와 관리자 메뉴 중 어디에 노출되어야 하는가?
-- 사용자가 실제로 보고 싶은 핵심 판단 정보가 명확한가?
-- 입력, 저장, 조회, 수정, 삭제, 예외 상황의 흐름이 정의되어 있는가?
-- 성공 상태와 실패 상태가 사용자가 이해할 수 있는 방식으로 표현되는가?
-- 사용자에게 노출되는 문구가 한국어 UX 기준으로 자연스러운가?
-- 계산에 직접 반영되는 정보와 참고용 정보가 명확히 구분되는가?
-- MVP에서 구현할 범위와 향후 로드맵으로 남길 범위가 분리되어 있는가?
-- 기존 데이터의 자동 변환이 필요한지, 수동 정리로 충분한지 판단했는가?
-- 기능이 투자 판단, 필요 현금, 대출 가능액처럼 중요한 의사결정에 영향을 주는가?
-- 중요한 의사결정 정보는 화면에서 충분히 강조되는가?
+## Documentation Checklist
 
-## Architecture Review Checklist
+- Are user-facing docs still accurate?
+- Are architecture rules documented in `docs/ARCHITECTURE.md` rather than repeated elsewhere?
+- Is current UI migration context documented in `docs/COMMERCIAL_UI.md`?
+- Are old plans/specs preserved in archive instead of being deleted?
 
-구현 구조와 변경 위험을 확인한다.
+## Verification Checklist
 
-- 기존 구현을 먼저 확인했는가?
-- 이미 유사 기능이 있으면 중복 구현하지 않고 재사용하는가?
-- 변경 범위가 최소화되고 국소화되어 있는가?
-- UI 코드에 SQL 또는 계산 로직이 들어가지 않는가?
-- DB 접근은 Repository에, 업무 흐름은 Service에, 계산은 Analyzer 또는 계산 모듈에 위치하는가?
-- DB 스키마 변경이 꼭 필요한가?
-- 스키마 변경이 필요하다면 기존 데이터와 호환되는가?
-- SQLite 단계에서 가능한 검증과 PostgreSQL 전환 시 필요한 제약을 구분했는가?
-- protected path를 수정하지 않는가?
-- 기존 분석 엔진, 투자 점수, 정책 파서 등 요청 범위 밖의 로직을 건드리지 않는가?
-- 테스트 가능한 단위로 변경 범위를 나눴는가?
-- 기존 테스트가 깨질 가능성이 있는지 확인했는가?
-- Repository, Service, Analyzer, import, matching, validation 변경이면 `unittest` 추가/수정 계획이 있는가?
-- 금액은 원 단위 integer 저장 원칙을 유지하는가?
-- 날짜는 ISO format 문자열 또는 datetime 기준을 유지하는가?
+- Were the commands that prove the claim actually run?
+- Are failures, skips, or unverified items reported explicitly?
+- Is the final report based on fresh output rather than assumption?
 
-Additional DB review checks:
-
-- SQLite fallback remains available when PostgreSQL runtime support is added or changed.
-- PostgreSQL smoke coverage exists and uses a dedicated `TEST_DATABASE_URL` test database.
-- Analysis history reads are snapshot-first, and legacy rows still have a safe fallback path.
-
-Additional complex/public-data review checks:
-
-- Complex registration work is still centered on `apartment_complex` and the existing Repository contract.
-- `LawdCodeService` is reused for `LAWD_CD` resolution instead of re-implementing regional text mapping.
-- Current MOLIT import scope, matching priority, and fallback behavior are reviewed before changing public-data logic.
-- Fast search UX work does not silently turn nationwide transaction scans into the long-term default architecture without explicit acceptance.
-- If proposing the preferred future flow, it is described as `Address Search -> LawdCodeService -> MOLIT mapping/import -> apartment_complex save` and is not documented as already complete unless implemented.
-
-## Domain Boundary Checklist
-
-Estate Pulse의 정책, 규제, 계산 도메인이 섞이지 않도록 확인한다.
-
-- Policy Event는 참고용 정책 정보와 미래 지정/해제 이벤트로 관리되는가?
-- Calculation Rule은 실제 계산에 반영 가능한 대출, 세금, 중개보수 규칙만 포함하는가?
-- Region Regulation은 현재 적용 중인 지역 규제 상태를 표현하는가?
-- 정책 이벤트를 지원되지 않는 계산 규칙으로 억지 변환하지 않는가?
-- 지역 규제는 현재 MVP 기준 row 여러 개 방식으로 복수 규제를 표현하는가?
-- 정책 고시 단위 관리나 여러 지역/규제 연결이 필요하면 향후 N:M 전환 후보로 분리했는가?
-- REGULATED_AREA 같은 상위 개념을 신규 선택지로 다시 노출하지 않는가?
-- 기존 REGULATED_AREA 데이터는 자동 변환하지 않고 수동 정리 대상으로 남기는가?
-
-## Documentation Review Checklist
-
-문서가 실제 구현과 일치하는지 확인한다.
-
-- README.md 수정이 필요한가?
-- docs/ARCHITECTURE.md 수정이 필요한가?
-- docs/CODEX_GUIDE.md 수정이 필요한가?
-- 실제 구현되지 않은 기능을 완료된 것처럼 작성하지 않았는가?
-- 현재 MVP 상태와 향후 로드맵이 분리되어 있는가?
-- Known Limitations가 필요한 경우 문서에 반영되어 있는가?
-- 사용자 메뉴와 관리자 메뉴 설명이 현재 UI와 일치하는가?
-- 테스트 실행 방법이 현재 프로젝트 구조와 일치하는가?
-- 문서를 전체 덮어쓰지 않고 필요한 부분만 최소 수정하는가?
-- 다른 문서에 이미 있는 규칙을 그대로 중복 추가하지 않았는가?
-- 문서별 책임이 명확하며, Codex가 다음 작업에서 같은 긴 지시를 다시 요구하지 않아도 되는가?
-
-## Decision Criteria
-
-리뷰 결과는 GO, HOLD, REJECT 중 하나로 결정한다.
-
-### GO
-
-다음 조건을 모두 만족하면 구현을 진행할 수 있다.
-
-- 사용자 문제와 목표가 명확하다.
-- 기존 구현 확인이 끝났고 중복 구현 위험이 낮다.
-- 변경 범위가 요청된 기능에 한정되어 있다.
-- UI, Service, Repository, Analyzer 경계가 유지된다.
-- 계산 반영 정보와 참고용 정보가 구분된다.
-- DB 변경 필요 여부와 호환성이 확인되었다.
-- 테스트 범위와 실행 방법이 정해져 있다.
-- 문서 수정 필요 여부가 확인되었다.
-- protected path 또는 SQLite DB 파일을 직접 수정하지 않는다.
-
-### HOLD
-
-다음 중 하나라도 해당하면 구현 전에 사용자 또는 팀 확인을 받는다.
-
-- 사용자 흐름 또는 핵심 의사결정 정보가 모호하다.
-- 일반 사용자 기능인지 관리자 기능인지 불명확하다.
-- DB 스키마 변경이 필요하지만 마이그레이션 방향이 정해지지 않았다.
-- 기존 구현이 있을 가능성이 높은데 아직 확인하지 못했다.
-- 계산 결과, 필요 현금, 투자 점수 등 중요한 수치에 영향을 준다.
-- Policy Event, Calculation Rule, Region Regulation 중 어느 도메인인지 애매하다.
-- 자동 변환과 수동 정리 중 선택이 필요하다.
-- 테스트 전략이 불명확하다.
-- 문서가 실제 구현보다 앞서갈 위험이 있다.
-
-### REJECT
-
-다음에 해당하는 요청은 그대로 구현하지 않는다.
-
-- protected path를 수정, 삭제, 복원, 검사하도록 요구한다.
-- SQLite DB 파일을 직접 수정하도록 요구한다.
-- 외부 API Key 또는 민감 정보를 코드에 직접 넣도록 요구한다.
-- 민간 부동산 플랫폼 자동 수집, 봇 탐지 우회, CAPTCHA 우회가 포함된다.
-- UI 코드에 SQL 또는 핵심 계산 로직을 직접 추가한다.
-- 이미 있는 기능을 확인 없이 중복 구현한다.
-- 지원되지 않는 정책 문서를 계산 규칙으로 강제 변환한다.
-- 구현되지 않은 기능을 문서에서 완료된 기능처럼 설명한다.
-- 요청 범위를 벗어난 대규모 리팩토링을 포함한다.
-
-## Review Output Template
-
-기능 개발 전에 아래 형식으로 리뷰 결과를 남긴다.
+## Review Result Template
 
 ```text
 Review Result: GO / HOLD / REJECT
 
 Scope:
-- 
 
-Existing Implementation:
-- 
+Boundary Notes:
 
-Proposed Change:
-- 
+Verification:
 
-Out of Scope:
-- 
-
-Architecture Notes:
-- 
+Risks:
 
 Documentation Impact:
-- 
-
-Tests:
-- 
-
-Known Limitations:
-- 
 ```
-
-## Estate Pulse Specific Notes
-
-- 부족 현금은 사용자의 구매 가능 여부 판단에서 가장 중요한 정보로 우선 강조한다.
-- 예상 대출, 필요 현금, 부족 현금은 화면에서 서로 구분되어야 한다.
-- 정책 이벤트는 기본적으로 참고용 정보이며, 계산 지원이 명확한 경우에만 계산 규칙과 연결한다.
-- 현재 정책 이벤트 관리는 사용자 조회 기능이 아니라 관리자성 CRUD/관리 기능이다.
-- 지역 규제는 현재 적용 상태이고, 정책 이벤트는 미래 지정/해제나 정책 참고 정보이다.
-- 자금 프로필의 보유 주택 수, 보유 부동산 시가, 보유 부동산 대출 잔액은 향후 DSR, 순자산, 다주택 판단에 활용될 수 있다.
-- SQLite 단계에서는 enum/check 제약보다 Service 검증을 우선 사용하며, PostgreSQL 전환 시 DB 제약 또는 마스터 테이블 도입을 검토한다.

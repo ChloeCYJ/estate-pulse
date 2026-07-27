@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import sqlite3
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -32,7 +33,7 @@ class AnalysisResultSqliteMigrationTests(unittest.TestCase):
         self.assertEqual(latest["jeonse_price_snapshot"], 540_000_000)
         self.assertEqual(latest["complex_name_snapshot"], "Legacy Complex")
 
-        with sqlite3.connect(self.database_path) as connection:
+        with closing(sqlite3.connect(self.database_path)) as connection:
             connection.row_factory = sqlite3.Row
 
             listing_row = next(
@@ -65,7 +66,7 @@ class AnalysisResultSqliteMigrationTests(unittest.TestCase):
         self.assertEqual(recent["complex_name"], "Legacy Complex")
 
     def _create_legacy_database(self, database_path: Path) -> None:
-        with sqlite3.connect(database_path) as connection:
+        with closing(sqlite3.connect(database_path)) as connection:
             connection.execute("PRAGMA foreign_keys = ON")
             connection.executescript(
                 """
