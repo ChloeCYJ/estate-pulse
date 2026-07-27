@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import streamlit as st
+from typing import Callable
 
 from config.settings import get_settings
 from modules.collectors.juso_address_client import JusoAddressClient
@@ -34,10 +35,10 @@ from modules.ui.admin_view import render_admin_page
 from modules.ui.analysis_view_refined import render_analysis_page
 from modules.ui.comparison_view import render_comparison_page
 from modules.ui.complex_form import render_complex_page
-from modules.ui.dashboard import render_dashboard_page
 from modules.ui.finance_profile_form import render_finance_profile_page
 from modules.ui.listing_form import render_listing_page
 from modules.ui.ranking_view_refined import render_ranking_page
+from modules.ui.search_home_page import SIDEBAR_USER_PAGE_KEY, render_search_home_page
 from modules.ui.watchlist_view_refined import render_watchlist_page
 
 
@@ -49,6 +50,7 @@ def main() -> None:
     st.set_page_config(
         page_title=settings.app_name,
         layout="wide",
+        initial_sidebar_state="collapsed" if settings.ui_mode == "commercial" else "auto",
     )
 
     complex_repository = ApartmentComplexRepository(database_target)
@@ -129,12 +131,14 @@ def main() -> None:
     )
 
     user_pages = {
-        "Dashboard": lambda: render_dashboard_page(
+        "Dashboard": lambda: render_search_home_page(
+            settings=settings,
             complex_repository=complex_repository,
             listing_repository=listing_repository,
             finance_repository=finance_repository,
             analysis_repository=analysis_repository,
             policy_event_service=policy_event_service,
+            address_search_service=address_search_service,
         ),
         "단지": lambda: render_complex_page(
             complex_repository,
@@ -182,13 +186,36 @@ def main() -> None:
         ),
     }
 
+    render_app_shell(
+        settings=settings,
+        user_pages=user_pages,
+        admin_pages=admin_pages,
+    )
+
+
+def render_app_shell(
+    *,
+    settings,
+    user_pages: dict[str, Callable[[], None]],
+    admin_pages: dict[str, Callable[[], None]],
+) -> None:
+    if getattr(settings, "ui_mode", "legacy") == "commercial":
+        user_pages["Dashboard"]()
+        return
+
     st.sidebar.title(settings.app_name)
     menu_group = st.sidebar.radio("메뉴 구분", ["사용자", "관리자"])
     if menu_group == "관리자":
         selected_page = st.sidebar.radio("관리자 메뉴", list(admin_pages.keys()))
         selected_renderer = admin_pages[selected_page]
     else:
-        selected_page = st.sidebar.radio("사용자 메뉴", list(user_pages.keys()))
+        if SIDEBAR_USER_PAGE_KEY not in st.session_state:
+            st.session_state[SIDEBAR_USER_PAGE_KEY] = "Dashboard"
+        selected_page = st.sidebar.radio(
+            "사용자 메뉴",
+            list(user_pages.keys()),
+            key=SIDEBAR_USER_PAGE_KEY,
+        )
         selected_renderer = user_pages[selected_page]
     st.sidebar.caption("Phase 2 comparison platform")
     selected_renderer()

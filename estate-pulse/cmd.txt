@@ -66,3 +66,8 @@ JUSO_API_KEY="devU01TX0FVVEgyMDI2MDcxMjAwNDAxMTExOTcwMzc="
 $env:POSTGRES_ADMIN_PASSWORD="postgres"
 powershell -ExecutionPolicy Bypass -File .\scripts\init_postgres.ps1
 .\.venv\Scripts\python -m streamlit run app.py
+
+
+cd D:\CodexProject\estate-pulse
+$env:ESTATE_PLUS_UI_MODE='commercial'
+.\.venv314\Scripts\python -m streamlit run app.py --server.headless true --server.port 8508

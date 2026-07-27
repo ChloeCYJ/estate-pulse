@@ -1,0 +1,54 @@
+:host,
+:root {
+  --color-bg: #f7f8fa;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f3f4f6;
+  --color-text-primary: #171719;
+  --color-text-secondary: #6b7280;
+  --color-text-tertiary: #9ca3af;
+  --color-border: #e5e7eb;
+  --color-primary: #2563eb;
+  --color-primary-strong: #1d4ed8;
+  --color-primary-soft: #dbeafe;
+  --color-success: #15803d;
+  --color-warning: #b45309;
+  --color-danger: #dc2626;
+
+  --font-family-sans: "Pretendard Variable", "Pretendard", "Noto Sans KR", sans-serif;
+  --font-family-mono: "JetBrains Mono", "D2Coding", monospace;
+  --font-size-display: 2.625rem;
+  --font-size-h1: 2rem;
+  --font-size-h2: 1.5rem;
+  --font-size-h3: 1.125rem;
+  --font-size-body: 1rem;
+  --font-size-meta: 0.875rem;
+  --line-height-tight: 1.2;
+  --line-height-base: 1.5;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+
+  --radius-card: 1rem;
+  --radius-control: 0.75rem;
+  --radius-pill: 999px;
+
+  --shadow-sm: 0 8px 20px rgba(23, 23, 25, 0.04);
+  --shadow-md: 0 14px 32px rgba(23, 23, 25, 0.08);
+
+  --breakpoint-desktop: 75rem;
+  --breakpoint-tablet: 60rem;
+  --breakpoint-mobile: 40rem;
+
+  --z-base: 1;
+  --z-sticky: 10;
+  --z-overlay: 100;
+
+  --content-max-width: 75rem;
+  --surface-border: 1px solid var(--color-border);
+}

@@ -1,0 +1,94 @@
+{
+  "timestamp": "2026-07-27T13:01:20.866Z",
+  "baseUrl": "http://localhost:8508",
+  "desktop": {
+    "rootClassName": "ep-shell",
+    "rootBackground": "rgb(247, 248, 250)",
+    "layoutMaxWidth": "1200px",
+    "layoutDisplay": "block",
+    "layoutPaddingInline": "32px",
+    "searchControlsLayout": "635.906px 112.094px",
+    "input": {
+      "border": "1px solid rgb(229, 231, 235)",
+      "height": "56px",
+      "padding": "0px 20px"
+    },
+    "primaryButton": {
+      "backgroundColor": "rgb(37, 99, 235)",
+      "borderRadius": "12px",
+      "height": "56px"
+    },
+    "recentCard": {
+      "border": "1px solid rgb(229, 231, 235)",
+      "padding": "22px",
+      "borderRadius": "16px"
+    },
+    "topNavItem": {
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "border": "0px none rgb(37, 99, 235)"
+    },
+    "activeTopNavItem": {
+      "color": "rgb(37, 99, 235)"
+    },
+    "duplicateHeadlineCount": 1,
+    "hasIdleSearchPanel": false,
+    "sidebarDomPresent": false,
+    "horizontalOverflow": false,
+    "recentGridColumns": "368px 368px 368px"
+  },
+  "mobile": {
+    "rootClassName": "ep-shell",
+    "rootBackground": "rgb(247, 248, 250)",
+    "layoutMaxWidth": "1200px",
+    "layoutDisplay": "block",
+    "layoutPaddingInline": "20px",
+    "searchControlsLayout": "318px",
+    "input": {
+      "border": "1px solid rgb(229, 231, 235)",
+      "height": "56px",
+      "padding": "0px 20px"
+    },
+    "primaryButton": {
+      "backgroundColor": "rgb(37, 99, 235)",
+      "borderRadius": "12px",
+      "height": "56px"
+    },
+    "recentCard": {
+      "border": "1px solid rgb(229, 231, 235)",
+      "padding": "22px",
+      "borderRadius": "16px"
+    },
+    "topNavItem": {
+      "backgroundColor": "rgb(219, 234, 254)",
+      "border": "0px none rgb(37, 99, 235)"
+    },
+    "activeTopNavItem": {
+      "color": "rgb(37, 99, 235)"
+    },
+    "duplicateHeadlineCount": 1,
+    "hasIdleSearchPanel": false,
+    "sidebarDomPresent": false,
+    "horizontalOverflow": false,
+    "recentGridColumns": "318px"
+  },
+  "cssResponses": [
+    {
+      "url": "http://localhost:8508/_stcore/bidi-components/commercial_ui.commercial_ui/commercial-ui.css",
+      "status": 200,
+      "size": 8996
+    }
+  ],
+  "cssSelectors": {
+    "path": "D:\\CodexProject\\estate-pulse\\commercial_ui\\frontend\\build\\commercial-ui.css",
+    "size": 8994,
+    "selectors": {
+      ".ep-shell": true,
+      ".ep-layout": true,
+      ".ep-searchbar__input": true,
+      ".ep-button--primary": true,
+      ".ep-recent-card": true,
+      ".ep-recent-grid": true
+    }
+  },
+  "consoleErrors": []
+}

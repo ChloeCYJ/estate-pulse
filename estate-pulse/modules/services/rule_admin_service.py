@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from config.loan_rules import HOUSE_PRICE_BRACKETS
 from modules.utils.money_utils import format_won
@@ -1255,7 +1255,7 @@ def _validate_manual_loan_rule(rule: dict) -> None:
 
 
 def _manual_rule_version() -> str:
-    return f"manual-loan-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+    return f"manual-loan-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
 
 
 def _format_money_or_unlimited(value: int | None) -> str:

@@ -25,6 +25,7 @@ class AppSettings:
     juso_api_key: str | None = None
     reb_service_key: str | None = None
     database_url: str | None = None
+    ui_mode: str = "legacy"
 
     @property
     def database_target(self) -> Path | str:
@@ -39,6 +40,13 @@ def _get_env_float(name: str, default: float) -> float:
 def _get_env_int(name: str, default: int) -> int:
     value = os.getenv(name)
     return int(value) if value is not None else default
+
+
+def _get_ui_mode() -> str:
+    value = str(os.getenv("ESTATE_PLUS_UI_MODE", "legacy") or "legacy").strip().lower()
+    if value == "commercial":
+        return "commercial"
+    return "legacy"
 
 
 @lru_cache(maxsize=1)
@@ -60,4 +68,5 @@ def get_settings() -> AppSettings:
         juso_api_key=os.getenv("JUSO_API_KEY"),
         reb_service_key=os.getenv("REB_SERVICE_KEY"),
         database_url=database_url,
+        ui_mode=_get_ui_mode(),
     )
