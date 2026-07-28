@@ -71,3 +71,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\init_postgres.ps1
 cd D:\CodexProject\estate-pulse
 $env:ESTATE_PLUS_UI_MODE='commercial'
 .\.venv314\Scripts\python -m streamlit run app.py --server.headless true --server.port 8508
+
+
+git switch dev-ing
+git push origin dev-ing
