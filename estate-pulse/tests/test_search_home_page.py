@@ -7,17 +7,21 @@ from unittest.mock import patch
 import unittest
 
 from modules.ui.page_ids import PAGE_COMPARISON, PAGE_DASHBOARD
+from modules.ui.commercial_page_state import load_commercial_page_state
 from modules.ui.search_home_page import (
     NAVIGATION_TARGET_COMPARISON,
     NAVIGATION_TARGET_SAVED_ANALYSES,
     SEARCH_STATUS_ERROR,
+    SEARCH_STATUS_LOADING,
     SEARCH_STATUS_NO_RESULTS,
     SEARCH_STATUS_SUCCESS,
     SIDEBAR_USER_PAGE_KEY,
     build_search_home_page_state,
+    handle_analysis_requested,
     handle_navigation_selected,
     handle_recent_analysis_selected,
     handle_search_submitted,
+    handle_search_result_selected,
     render_search_home_page,
 )
 
@@ -104,6 +108,145 @@ class SearchHomePageTests(unittest.TestCase):
 
         self.assertEqual(session_state["commercial_search_home_selected_analysis_id"], "18")
 
+    def test_handle_recent_analysis_selected_sets_commercial_page_state_to_saved_dashboard(self) -> None:
+        session_state: dict[str, object] = {}
+
+        handle_recent_analysis_selected(
+            session_state=session_state,
+            analysis_id="18",
+        )
+
+        state = load_commercial_page_state(session_state)
+        self.assertEqual(state.commercial_page, "analysis_dashboard")
+        self.assertEqual(state.analysis_source, "saved")
+        self.assertEqual(state.active_analysis_id, 18)
+        self.assertEqual(state.last_trigger, "recent_analysis_selected")
+
+    def test_handle_search_result_selected_creates_pending_request_for_registered_complex(self) -> None:
+        session_state: dict[str, object] = {}
+        analysis_service = Mock()
+        analysis_service.list_complex_area_options.return_value = [
+            {"complex_id": 7, "complex_name": "Test Complex", "area_bucket": 84.9}
+        ]
+
+        state = handle_search_result_selected(
+            session_state=session_state,
+            result_type="registered_complex",
+            result_id="complex:7",
+            analysis_service=analysis_service,
+        )
+
+        self.assertEqual(state.commercial_page, "search_home")
+        self.assertEqual(
+            state.pending_analysis_request,
+            {
+                "request_kind": "complex_area_analysis",
+                "complex_id": 7,
+                "area_bucket": 84.9,
+                "listing_id": None,
+            },
+        )
+        self.assertEqual(state.last_trigger, "search_result_selected")
+
+    def test_handle_analysis_requested_requires_loading_rerun_before_service_execution(self) -> None:
+        session_state: dict[str, object] = {}
+        first_state = handle_analysis_requested(
+            session_state=session_state,
+            complex_id=7,
+            area_bucket=84.9,
+            listing_id=None,
+            analysis_service=Mock(),
+            finance_repository=Mock(),
+        )
+
+        self.assertEqual(first_state.commercial_page, "search_home")
+        self.assertEqual(build_search_home_page_state(session_state).search_status, SEARCH_STATUS_LOADING)
+        self.assertEqual(first_state.pending_analysis_request["complex_id"], 7)
+
+    def test_handle_analysis_requested_executes_service_once_on_loading_rerun_and_opens_live_dashboard(self) -> None:
+        session_state: dict[str, object] = {}
+        analysis_service = Mock()
+        finance_repository = Mock()
+        finance_repository.get_latest.return_value = {"id": 31}
+        live_result = {
+            "complex_id": 7,
+            "complex_name": "Test Complex",
+            "area_bucket": 84.9,
+            "sale_price": 990_000_000,
+            "required_cash": 250_000_000,
+            "shortage_cash": 0,
+            "expected_loan_amount": 540_000_000,
+            "monthly_repayment": None,
+            "decision": "affordable",
+            "summary": "summary",
+            "risks": [],
+        }
+        analysis_service.run_complex_area_analysis.return_value = live_result
+
+        handle_analysis_requested(
+            session_state=session_state,
+            complex_id=7,
+            area_bucket=84.9,
+            listing_id=None,
+            analysis_service=analysis_service,
+            finance_repository=finance_repository,
+        )
+        state = handle_analysis_requested(
+            session_state=session_state,
+            complex_id=7,
+            area_bucket=84.9,
+            listing_id=None,
+            analysis_service=analysis_service,
+            finance_repository=finance_repository,
+        )
+
+        analysis_service.run_complex_area_analysis.assert_called_once()
+        self.assertEqual(state.commercial_page, "analysis_dashboard")
+        self.assertEqual(state.analysis_source, "live")
+        self.assertIsNone(state.active_analysis_id)
+        self.assertEqual(state.active_analysis_result, live_result)
+        self.assertIsNone(state.pending_analysis_request)
+
+    def test_handle_analysis_requested_failure_keeps_search_home_error_and_preserves_active_result(self) -> None:
+        session_state: dict[str, object] = {}
+        analysis_service = Mock()
+        finance_repository = Mock()
+        finance_repository.get_latest.return_value = {"id": 31}
+        existing_result = {"complex_name": "Existing"}
+        existing_state = load_commercial_page_state(session_state)
+        from modules.ui.commercial_page_state import CommercialPageState, save_commercial_page_state
+
+        save_commercial_page_state(
+            session_state,
+            CommercialPageState(
+                commercial_page=existing_state.commercial_page,
+                active_analysis_result=existing_result,
+            ),
+        )
+        analysis_service.run_complex_area_analysis.side_effect = ValueError("boom")
+
+        handle_analysis_requested(
+            session_state=session_state,
+            complex_id=7,
+            area_bucket=84.9,
+            listing_id=None,
+            analysis_service=analysis_service,
+            finance_repository=finance_repository,
+        )
+        state = handle_analysis_requested(
+            session_state=session_state,
+            complex_id=7,
+            area_bucket=84.9,
+            listing_id=None,
+            analysis_service=analysis_service,
+            finance_repository=finance_repository,
+        )
+
+        self.assertEqual(state.commercial_page, "search_home")
+        self.assertEqual(load_commercial_page_state(session_state).active_analysis_result, existing_result)
+        self.assertEqual(build_search_home_page_state(session_state).search_status, SEARCH_STATUS_ERROR)
+        self.assertEqual(build_search_home_page_state(session_state).display_error["code"], "analysis_failed")
+
     def test_handle_navigation_selected_routes_comparison_to_existing_page(self) -> None:
         session_state: dict[str, object] = {
             SIDEBAR_USER_PAGE_KEY: PAGE_DASHBOARD,
@@ -156,6 +299,7 @@ class SearchHomePageTests(unittest.TestCase):
                 listing_repository=Mock(),
                 finance_repository=Mock(),
                 analysis_repository=analysis_repository,
+                analysis_service=Mock(),
                 policy_event_service=Mock(),
                 address_search_service=Mock(),
             )

@@ -21,7 +21,8 @@ const baseViewModel: SearchHomeViewModel = {
   empty_state: true,
   display_error: null,
   recent_analyses: [],
-  search_results: []
+  search_results: [],
+  pending_analysis: null
 };
 
 afterEach(() => {
@@ -69,6 +70,130 @@ describe("SearchHomeRenderer", () => {
     expect(view.getByTestId("loading-state")).toBeInTheDocument();
   });
 
+  it("emits search result selection for registered complexes", () => {
+    const onSearchResultSelected = vi.fn();
+    const view = renderSearchHome(
+      {
+        search_query: "공덕",
+        search_status: "success",
+        search_results: [
+          {
+            result_id: "complex:7",
+            result_type: "registered_complex",
+            title: "Test Complex",
+            subtitle: "Seoul",
+            meta: "registered"
+          }
+        ]
+      },
+      { onSearchResultSelected }
+    );
+
+    fireEvent.click(view.getByRole("button", { name: "Test Complex 분석 대상 선택" }));
+
+    expect(onSearchResultSelected).toHaveBeenCalledWith("registered_complex", "complex:7");
+  });
+
+  it("renders the pending analysis picker and emits analysis payload", () => {
+    const onAnalysisRequested = vi.fn();
+    const view = renderSearchHome(
+      {
+        search_query: "test",
+        search_status: "success",
+        pending_analysis: {
+          complex_id: 7,
+          complex_name: "Test Complex",
+          finance_profile_label: "Latest profile",
+          auto_submit: false,
+          selected_area_bucket: 84.9,
+          area_options: [
+            {
+              area_bucket: 84.9,
+              label: "84.9m²",
+              listing_count: 1,
+              sale_transaction_count: 3,
+              listing_options: [
+                { listing_id: null, label: "최근 거래 기준" },
+                { listing_id: 11, label: "#11 | 9.0억" }
+              ]
+            }
+          ]
+        }
+      },
+      { onAnalysisRequested }
+    );
+
+    expect(view.getByText("Test Complex")).toBeInTheDocument();
+    fireEvent.click(view.getAllByRole("button", { name: "분석 시작" })[0]);
+
+    expect(onAnalysisRequested).toHaveBeenCalledWith({
+      complex_id: 7,
+      area_bucket: 84.9,
+      listing_id: null
+    });
+  });
+
+  it("scrolls the pending analysis picker into view when a target is selected", () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView
+    });
+    const view = renderSearchHome({
+      search_query: "행당동",
+      search_status: "success"
+    });
+    const pendingViewModel = {
+      ...baseViewModel,
+      search_query: "행당동",
+      search_status: "success" as const,
+      pending_analysis: {
+        complex_id: 7,
+        complex_name: "행당 한진타운",
+        finance_profile_label: "최근 자금 프로필 #10",
+        auto_submit: false,
+        selected_area_bucket: 60,
+        area_options: [
+          {
+            area_bucket: 60,
+            label: "60.0m²",
+            listing_count: 0,
+            sale_transaction_count: 33,
+            listing_options: [{ listing_id: null, label: "최근 거래 기준" }]
+          }
+        ]
+      }
+    };
+
+    view.rerender(
+      <SearchHomeRenderer
+        viewModel={pendingViewModel}
+        onSearchSubmitted={vi.fn()}
+        onRecentAnalysisSelected={vi.fn()}
+        onSearchResultSelected={vi.fn()}
+        onAnalysisRequested={vi.fn()}
+        onNavigationSelected={vi.fn()}
+      />
+    );
+
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+
+    view.rerender(
+      <SearchHomeRenderer
+        viewModel={pendingViewModel}
+        onSearchSubmitted={vi.fn()}
+        onRecentAnalysisSelected={vi.fn()}
+        onSearchResultSelected={vi.fn()}
+        onAnalysisRequested={vi.fn()}
+        onNavigationSelected={vi.fn()}
+      />
+    );
+
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+  });
+
   it("renders the no-results state", () => {
     const view = renderSearchHome({
       search_query: "없는단지",
@@ -98,7 +223,7 @@ describe("SearchHomeRenderer", () => {
     const input = view.getByPlaceholderText("단지명이나 주소를 입력하세요");
 
     fireEvent.change(input, { target: { value: "성수" } });
-    view.getByRole("button", { name: "분석 시작" }).click();
+    view.getByRole("button", { name: "검색" }).click();
 
     expect(onSearchSubmitted).toHaveBeenCalledWith("성수");
   });
@@ -152,9 +277,9 @@ describe("SearchHomeRenderer", () => {
         {
           result_id: "complex:1",
           result_type: "registered_complex",
-          title: "서울숲트리마제",
+          title: "서울숲센트럴파크",
           subtitle: "서울 성동구 왕십리로 83",
-          meta: "등록된 단지"
+          meta: "등록 단지"
         }
       ]
     });
@@ -165,17 +290,17 @@ describe("SearchHomeRenderer", () => {
   it("limits the recent analysis cards to three items", () => {
     const view = renderSearchHome({
       recent_analyses: [
-        createRecentAnalysis("1", "서울숲1"),
-        createRecentAnalysis("2", "서울숲2"),
-        createRecentAnalysis("3", "서울숲3"),
-        createRecentAnalysis("4", "서울숲4")
+        createRecentAnalysis("1", "서울숲 1차"),
+        createRecentAnalysis("2", "서울숲 2차"),
+        createRecentAnalysis("3", "서울숲 3차"),
+        createRecentAnalysis("4", "서울숲 4차")
       ]
     });
 
-    expect(view.getByRole("button", { name: "서울숲1 최근 분석 다시 보기" })).toBeInTheDocument();
-    expect(view.getByRole("button", { name: "서울숲2 최근 분석 다시 보기" })).toBeInTheDocument();
-    expect(view.getByRole("button", { name: "서울숲3 최근 분석 다시 보기" })).toBeInTheDocument();
-    expect(view.queryByRole("button", { name: "서울숲4 최근 분석 다시 보기" })).not.toBeInTheDocument();
+    expect(view.getByRole("button", { name: "서울숲 1차 최근 분석 다시 보기" })).toBeInTheDocument();
+    expect(view.getByRole("button", { name: "서울숲 2차 최근 분석 다시 보기" })).toBeInTheDocument();
+    expect(view.getByRole("button", { name: "서울숲 3차 최근 분석 다시 보기" })).toBeInTheDocument();
+    expect(view.queryByRole("button", { name: "서울숲 4차 최근 분석 다시 보기" })).not.toBeInTheDocument();
   });
 });
 
@@ -184,6 +309,12 @@ function renderSearchHome(
   handlers?: {
     onSearchSubmitted?: (query: string) => void;
     onRecentAnalysisSelected?: (analysisId: string) => void;
+    onSearchResultSelected?: (resultType: "registered_complex" | "address_candidate", resultId: string) => void;
+    onAnalysisRequested?: (payload: {
+      complex_id: number;
+      area_bucket: number;
+      listing_id: number | null;
+    }) => void;
     onNavigationSelected?: (target: string) => void;
   }
 ) {
@@ -192,6 +323,8 @@ function renderSearchHome(
       viewModel={{ ...baseViewModel, ...overrides }}
       onSearchSubmitted={handlers?.onSearchSubmitted ?? vi.fn()}
       onRecentAnalysisSelected={handlers?.onRecentAnalysisSelected ?? vi.fn()}
+      onSearchResultSelected={handlers?.onSearchResultSelected ?? vi.fn()}
+      onAnalysisRequested={handlers?.onAnalysisRequested ?? vi.fn()}
       onNavigationSelected={handlers?.onNavigationSelected ?? vi.fn()}
     />
   );

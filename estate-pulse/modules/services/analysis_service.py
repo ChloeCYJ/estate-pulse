@@ -387,6 +387,7 @@ class AnalysisService:
 
         result = {
             "listing_id": subject.listing_id,
+            "finance_profile_id": finance_profile_id,
             "investment_type": investment_type,
             "primary_user_mode": primary_user_mode,
             "complex_id": subject.complex_id,
@@ -501,6 +502,11 @@ class AnalysisService:
             result["analysis_id"] = analysis_id
 
         return result
+
+    def save_completed_analysis_result(self, active_result: dict) -> int:
+        return self.analysis_repository.create(
+            self._build_snapshot_payload_from_completed_result(active_result)
+        )
 
     def list_complex_area_options(self, *, complex_id: int) -> list[dict]:
         complex_row = (
@@ -963,6 +969,67 @@ class AnalysisService:
             "loan_rule_version": loan_rule_version,
             "decision": decision,
             "summary": summary,
+        }
+
+    def _build_snapshot_payload_from_completed_result(self, active_result: dict) -> dict[str, object]:
+        reference_metadata = active_result.get("reference_price_metadata") or {}
+        costs = active_result.get("costs") or {}
+        return {
+            "target_type": (
+                TARGET_TYPE_LISTING
+                if active_result.get("listing_id") is not None
+                else TARGET_TYPE_COMPLEX_AREA
+            ),
+            "listing_id": active_result.get("listing_id"),
+            "complex_id": active_result.get("complex_id"),
+            "area_bucket": active_result.get("area_bucket"),
+            "price_source": active_result.get("price_source"),
+            "effective_price_snapshot": active_result.get("sale_price"),
+            "reference_price": reference_metadata.get("reference_price"),
+            "sample_count": reference_metadata.get("sample_count"),
+            "latest_transaction_date": reference_metadata.get("latest_transaction_date"),
+            "selected_transaction_min_price": reference_metadata.get("sample_min_price"),
+            "selected_transaction_max_price": reference_metadata.get("sample_max_price"),
+            "confidence": reference_metadata.get("confidence"),
+            "volatility_status": reference_metadata.get("volatility_status"),
+            "finance_profile_id": active_result.get("finance_profile_id"),
+            "investment_type": active_result.get("investment_type"),
+            "required_cash": active_result.get("required_cash"),
+            "shortage_cash": active_result.get("shortage_cash"),
+            "current_required_cash": active_result.get("current_required_cash"),
+            "future_required_cash": active_result.get("future_required_cash"),
+            "monthly_cash_flow": active_result.get("monthly_cash_flow"),
+            "acquisition_tax": costs.get("acquisition_tax"),
+            "local_education_tax": costs.get("local_education_tax"),
+            "brokerage_fee": costs.get("brokerage_fee"),
+            "legal_fee": costs.get("legal_fee"),
+            "reserve_cost": costs.get("reserve_cost"),
+            "total_transaction_cost": costs.get("total_transaction_cost"),
+            "applied_tax_rule_version": active_result.get("applied_tax_rule_version"),
+            "applied_brokerage_rule_version": active_result.get("applied_brokerage_rule_version"),
+            "liquidity_score": active_result.get("liquidity_score"),
+            "investment_score": active_result.get("investment_score"),
+            "complex_grade": active_result.get("complex_grade"),
+            "sale_price_snapshot": active_result.get("sale_price"),
+            "jeonse_price_snapshot": active_result.get("expected_jeonse_price"),
+            "area_m2_snapshot": active_result.get("area_bucket"),
+            "complex_name_snapshot": active_result.get("complex_name"),
+            "available_cash_snapshot": (
+                (active_result.get("purchase_power") or {}).get("available_cash_for_purchase")
+            ),
+            "annual_income_snapshot": (
+                ((active_result.get("applied_rules") or {}).get("dsr") or {}).get("annual_income")
+            ),
+            "buyer_type_snapshot": active_result.get("resolved_buyer_type"),
+            "expected_loan_amount": active_result.get("expected_loan_amount"),
+            "monthly_repayment": active_result.get("monthly_repayment"),
+            "jeonse_ratio": active_result.get("jeonse_ratio"),
+            "discount_vs_recent_avg": active_result.get("discount_vs_recent_avg"),
+            "drop_from_high": active_result.get("drop_from_high"),
+            "bargain_score": active_result.get("bargain_score"),
+            "loan_rule_version": active_result.get("loan_rule_version"),
+            "decision": active_result.get("decision"),
+            "summary": active_result.get("summary"),
         }
 
 

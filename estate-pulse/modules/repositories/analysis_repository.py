@@ -148,6 +148,18 @@ class AnalysisRepository:
             (limit,),
         )
 
+    def get_by_id(self, analysis_id: int) -> dict | None:
+        return fetch_one(
+            self.database_path,
+            """
+            SELECT *
+            FROM analysis_result
+            WHERE id = ?
+            LIMIT 1
+            """,
+            (analysis_id,),
+        )
+
     def get_latest_by_listing(self, listing_id: int) -> dict | None:
         return fetch_one(
             self.database_path,

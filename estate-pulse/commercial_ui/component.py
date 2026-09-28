@@ -39,7 +39,13 @@ def render_commercial_ui(
         height="content",
         on_search_submitted_change=lambda: None,
         on_recent_analysis_selected_change=lambda: None,
+        on_search_result_selected_change=lambda: None,
+        on_analysis_requested_change=lambda: None,
         on_navigation_selected_change=lambda: None,
+        on_save_requested_change=lambda: None,
+        on_comparison_requested_change=lambda: None,
+        on_back_to_search_requested_change=lambda: None,
+        on_retry_requested_change=lambda: None,
     )
 
 

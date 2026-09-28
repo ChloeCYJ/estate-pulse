@@ -18,6 +18,28 @@ class DisplayError(TypedDict):
     message: str
 
 
+class PendingListingOption(TypedDict):
+    listing_id: int | None
+    label: str
+
+
+class PendingAreaOption(TypedDict):
+    area_bucket: float
+    label: str
+    listing_count: int
+    sale_transaction_count: int
+    listing_options: list[PendingListingOption]
+
+
+class PendingAnalysisViewModel(TypedDict):
+    complex_id: int
+    complex_name: str
+    finance_profile_label: str
+    auto_submit: bool
+    selected_area_bucket: float
+    area_options: list[PendingAreaOption]
+
+
 def build_search_home_view_model(
     *,
     search_query: str,
@@ -25,6 +47,7 @@ def build_search_home_view_model(
     recent_analyses: list[dict],
     search_results: list[dict] | None,
     display_error: DisplayError | None,
+    pending_analysis: PendingAnalysisViewModel | None = None,
 ) -> dict[str, object]:
     normalized_results = list(search_results or [])
     recent_cards = [_recent_analysis_card_payload(item) for item in recent_analyses]
@@ -53,6 +76,7 @@ def build_search_home_view_model(
         "display_error": display_error,
         "recent_analyses": recent_cards,
         "search_results": normalized_results,
+        "pending_analysis": pending_analysis,
     }
 
 

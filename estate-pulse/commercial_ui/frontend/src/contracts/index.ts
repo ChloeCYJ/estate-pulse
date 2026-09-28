@@ -1,57 +1,39 @@
-export type SearchStatus = "idle" | "loading" | "success" | "no_results" | "error";
+export type {
+  DisplayError,
+  NavigationItem,
+  PendingAnalysis,
+  PendingAreaOption,
+  PendingListingOption,
+  RecentAnalysisCard,
+  SearchHomeEnvelope,
+  SearchHomeViewModel,
+  SearchResultItem,
+  SearchStatus
+} from "./searchHome";
+export type {
+  AnalysisDashboardEnvelope,
+  AnalysisDashboardViewModel,
+  AnalysisSection,
+  AnalysisSource,
+  DashboardDisplayError,
+  DashboardMetric,
+  DashboardPageStatus,
+  PageNotice
+} from "./analysisDashboard";
 
-export type NavigationItem = {
-  id: string;
-  label: string;
-  active: boolean;
-};
+import type { AnalysisDashboardEnvelope } from "./analysisDashboard";
+import type { SearchHomeEnvelope } from "./searchHome";
 
-export type RecentAnalysisCard = {
-  analysis_id: string;
-  complex_name: string;
-  area_label: string;
-  reference_price_label: string;
-  analyzed_at_label: string;
-  location_label: string;
-};
-
-export type SearchResultItem = {
-  result_id: string;
-  result_type: "registered_complex" | "address_candidate";
-  title: string;
-  subtitle: string;
-  meta: string;
-};
-
-export type DisplayError = {
-  code: string;
-  message: string;
-};
-
-export type SearchHomeViewModel = {
-  service_title: string;
-  service_description: string[];
-  search_query: string;
-  search_status: SearchStatus;
-  navigation: NavigationItem[];
-  empty_state: boolean;
-  display_error: DisplayError | null;
-  recent_analyses: RecentAnalysisCard[];
-  search_results: SearchResultItem[];
-};
-
-export type CommercialUIEnvelope = {
-  page: "search-home";
-  view_model: SearchHomeViewModel;
-  frontend_state: Record<string, unknown>;
-  meta: {
-    generated_at: string;
-    locale: string;
-  };
-};
+export type CommercialUIEnvelope = SearchHomeEnvelope | AnalysisDashboardEnvelope;
 
 export type CommercialUIState = {
   search_submitted: { query: string } | null;
   recent_analysis_selected: { analysis_id: string } | null;
+  search_result_selected: { result_type: "registered_complex" | "address_candidate"; result_id: string } | null;
+  analysis_requested: { complex_id: number; area_bucket: number; listing_id: number | null } | null;
   navigation_selected: { target: string } | null;
+  save_requested: Record<string, never> | null;
+  comparison_requested: Record<string, never> | null;
+  back_to_search_requested: Record<string, never> | null;
+  retry_requested: Record<string, never> | null;
 };

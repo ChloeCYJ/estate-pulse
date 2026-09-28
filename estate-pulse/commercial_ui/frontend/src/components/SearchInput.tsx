@@ -28,7 +28,7 @@ export function SearchInput({ value, onChange, onSubmit, disabled = false }: Sea
           disabled={disabled}
         />
         <button className="ep-button ep-button--primary" type="submit" disabled={disabled}>
-          분석 시작
+          검색
         </button>
       </div>
     </form>

@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 import unittest
 
 import app
+from modules.ui.commercial_page_state import CommercialPageState, save_commercial_page_state
 
 
 class AppShellTests(unittest.TestCase):
@@ -41,6 +42,41 @@ class AppShellTests(unittest.TestCase):
 
         streamlit_mock.sidebar.title.assert_called_once_with("Estate Pulse")
         dashboard_renderer.assert_called_once_with()
+
+
+    def test_render_commercial_root_page_routes_analysis_dashboard_state(self) -> None:
+        streamlit_mock = Mock()
+        streamlit_mock.session_state = {}
+        save_commercial_page_state(
+            streamlit_mock.session_state,
+            CommercialPageState(
+                commercial_page="analysis_dashboard",
+                analysis_source="saved",
+                active_analysis_id=41,
+            ),
+        )
+
+        with (
+            patch.object(app, "st", streamlit_mock),
+            patch.object(app, "render_search_home_page") as search_home_mock,
+            patch.object(app, "render_commercial_analysis_page") as analysis_page_mock,
+            patch.object(app, "render_comparison_page") as comparison_page_mock,
+        ):
+            app.render_commercial_root_page(
+                settings=SimpleNamespace(ui_mode="commercial"),
+                complex_repository=Mock(),
+                listing_repository=Mock(),
+                finance_repository=Mock(),
+                analysis_repository=Mock(),
+                policy_event_service=Mock(),
+                address_search_service=Mock(),
+                analysis_service=Mock(),
+                opportunity_service=Mock(),
+            )
+
+        analysis_page_mock.assert_called_once()
+        search_home_mock.assert_not_called()
+        comparison_page_mock.assert_not_called()
 
 
 if __name__ == "__main__":

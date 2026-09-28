@@ -4,6 +4,7 @@ from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from config.settings import AppSettings
 from modules.repositories.analysis_repository import AnalysisRepository
@@ -603,6 +604,30 @@ class Phase2AnalysisServiceTests(unittest.TestCase):
         self.assertEqual(saved["buyer_type_snapshot"], "NO_HOME")
         self.assertEqual(saved["expected_loan_amount"], result["expected_loan_amount"])
         self.assertEqual(saved["monthly_repayment"], result["monthly_repayment"])
+
+    def test_save_completed_analysis_result_persists_without_recomputing(self) -> None:
+        live_result = self.analysis_service.run_complex_area_analysis(
+            complex_id=self.complex_id,
+            area_m2=84.9,
+            finance_profile_id=self.profile_id,
+            benchmarks=BenchmarkInputs(reference_date=date(2026, 5, 27)),
+            save_result=False,
+        )
+
+        with patch.object(
+            self.analysis_service,
+            "_resolve_analysis_subject",
+            side_effect=AssertionError("rerun"),
+        ):
+            analysis_id = self.analysis_service.save_completed_analysis_result(live_result)
+
+        saved = self.analysis_repository.get_by_id(analysis_id)
+
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved["id"], analysis_id)
+        self.assertEqual(saved["effective_price_snapshot"], live_result["sale_price"])
+        self.assertEqual(saved["required_cash"], live_result["required_cash"])
+        self.assertEqual(saved["finance_profile_id"], self.profile_id)
 
     def test_basic_analysis_snapshot_saves_with_null_listing_id(self) -> None:
         owner_profile_id = self.finance_repository.create(

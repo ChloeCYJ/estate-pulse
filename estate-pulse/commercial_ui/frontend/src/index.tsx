@@ -1,6 +1,7 @@
 import { createRoot, type Root } from "react-dom/client";
 import type { FrontendRenderer } from "@streamlit/component-v2-lib";
 
+import { AnalysisDashboardErrorBoundary, AnalysisDashboardRenderer } from "./renderers/AnalysisDashboardRenderer";
 import { SearchHomeRenderer } from "./renderers/SearchHomeRenderer";
 import type { CommercialUIEnvelope, CommercialUIState } from "./contracts";
 import "./design-system/global.css";
@@ -27,10 +28,48 @@ const renderer: FrontendRenderer<CommercialUIState, CommercialUIEnvelope> = (com
         onRecentAnalysisSelected={(analysisId) => {
           component.setTriggerValue("recent_analysis_selected", { analysis_id: analysisId });
         }}
+        onSearchResultSelected={(resultType, resultId) => {
+          component.setTriggerValue("search_result_selected", {
+            result_type: resultType,
+            result_id: resultId
+          });
+        }}
+        onAnalysisRequested={(payload) => {
+          component.setTriggerValue("analysis_requested", payload);
+        }}
         onNavigationSelected={(target) => {
           component.setTriggerValue("navigation_selected", { target });
         }}
       />
+    );
+  }
+
+  if (envelope.page === "analysis-dashboard") {
+    root.render(
+      <AnalysisDashboardErrorBoundary
+        onRetryRequested={() => {
+          component.setTriggerValue("retry_requested", {});
+        }}
+        onBackToSearchRequested={() => {
+          component.setTriggerValue("back_to_search_requested", {});
+        }}
+      >
+        <AnalysisDashboardRenderer
+          viewModel={envelope.view_model}
+          onSaveRequested={() => {
+            component.setTriggerValue("save_requested", {});
+          }}
+          onComparisonRequested={() => {
+            component.setTriggerValue("comparison_requested", {});
+          }}
+          onBackToSearchRequested={() => {
+            component.setTriggerValue("back_to_search_requested", {});
+          }}
+          onRetryRequested={() => {
+            component.setTriggerValue("retry_requested", {});
+          }}
+        />
+      </AnalysisDashboardErrorBoundary>
     );
   }
 

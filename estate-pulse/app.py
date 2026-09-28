@@ -33,6 +33,8 @@ from modules.services.rule_admin_service import RuleAdminService
 from modules.services.rule_runtime_service import RuleRuntimeService
 from modules.ui.admin_view import render_admin_page
 from modules.ui.analysis_view_refined import render_analysis_page
+from modules.ui.commercial_analysis_page import render_commercial_analysis_page
+from modules.ui.commercial_page_state import load_commercial_page_state
 from modules.ui.comparison_view import render_comparison_page
 from modules.ui.complex_form import render_complex_page
 from modules.ui.finance_profile_form import render_finance_profile_page
@@ -131,7 +133,7 @@ def main() -> None:
     )
 
     user_pages = {
-        "Dashboard": lambda: render_search_home_page(
+        "Dashboard": lambda: render_commercial_root_page(
             settings=settings,
             complex_repository=complex_repository,
             listing_repository=listing_repository,
@@ -139,6 +141,8 @@ def main() -> None:
             analysis_repository=analysis_repository,
             policy_event_service=policy_event_service,
             address_search_service=address_search_service,
+            analysis_service=analysis_service,
+            opportunity_service=opportunity_service,
         ),
         "단지": lambda: render_complex_page(
             complex_repository,
@@ -219,6 +223,47 @@ def render_app_shell(
         selected_renderer = user_pages[selected_page]
     st.sidebar.caption("Phase 2 comparison platform")
     selected_renderer()
+
+
+def render_commercial_root_page(
+    *,
+    settings,
+    complex_repository,
+    listing_repository,
+    finance_repository,
+    analysis_repository,
+    policy_event_service,
+    address_search_service,
+    analysis_service,
+    opportunity_service,
+) -> None:
+    page_state = load_commercial_page_state(st.session_state)
+    if page_state.commercial_page == "analysis_dashboard":
+        render_commercial_analysis_page(
+            analysis_repository=analysis_repository,
+            analysis_service=analysis_service,
+        )
+        return
+    if page_state.commercial_page == "legacy_comparison":
+        if page_state.page_notice:
+            st.info(str(page_state.page_notice.get("message") or ""))
+        render_comparison_page(
+            listing_repository=listing_repository,
+            finance_repository=finance_repository,
+            opportunity_service=opportunity_service,
+        )
+        return
+
+    render_search_home_page(
+        settings=settings,
+        complex_repository=complex_repository,
+        listing_repository=listing_repository,
+        finance_repository=finance_repository,
+        analysis_repository=analysis_repository,
+        analysis_service=analysis_service,
+        policy_event_service=policy_event_service,
+        address_search_service=address_search_service,
+    )
 
 
 if __name__ == "__main__":
