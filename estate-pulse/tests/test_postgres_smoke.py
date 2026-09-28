@@ -14,6 +14,7 @@ from modules.repositories.finance_profile_repository import UserFinanceProfileRe
 from modules.repositories.listing_repository import ManualListingRepository
 from modules.repositories.rent_transaction_repository import RentTransactionRepository
 from modules.repositories.sale_transaction_repository import SaleTransactionRepository
+from modules.repositories.user_account_repository import UserAccountRepository
 from modules.services.analysis_service import AnalysisService, BenchmarkInputs
 from modules.utils.date_utils import utc_now_iso
 
@@ -51,6 +52,7 @@ class PostgreSQLSmokeTests(unittest.TestCase):
         self.listing_repository = ManualListingRepository(self.database_url)
         self.finance_repository = UserFinanceProfileRepository(self.database_url)
         self.analysis_repository = AnalysisRepository(self.database_url)
+        self.user_account_repository = UserAccountRepository(self.database_url)
         self.sale_repository = SaleTransactionRepository(self.database_url)
         self.rent_repository = RentTransactionRepository(self.database_url)
         self.analysis_service = AnalysisService(
@@ -190,6 +192,41 @@ class PostgreSQLSmokeTests(unittest.TestCase):
         self.assertEqual(updated["build_year"], 2021)
         self.assertEqual(updated["memo"], "updated")
 
+    def test_commercial_auth_schema_round_trip(self) -> None:
+        account = self.user_account_repository.create_user_with_identity(
+            issuer="https://tenant.example.com/",
+            subject="google-oauth2|postgres-smoke",
+            provider="google-oauth2",
+            email="postgres-smoke@example.com",
+            display_name="Postgres Smoke",
+        )
+
+        resolved = self.user_account_repository.get_by_identity(
+            issuer="https://tenant.example.com/",
+            subject="google-oauth2|postgres-smoke",
+        )
+
+        self.assertIsNotNone(resolved)
+        assert resolved is not None
+        self.assertEqual(resolved["user_id"], account["user_id"])
+        with psycopg.connect(self.database_url) as connection:
+            owner_columns = {
+                (row[0], row[1])
+                for row in connection.execute(
+                    """
+                    SELECT table_name, column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name IN ('user_finance_profile', 'analysis_result')
+                      AND column_name = 'user_id'
+                    """
+                ).fetchall()
+            }
+        self.assertEqual(
+            owner_columns,
+            {("user_finance_profile", "user_id"), ("analysis_result", "user_id")},
+        )
+
     def test_complex_area_snapshot_round_trip(self) -> None:
         complex_id = self.complex_repository.create(
             name="Reference Postgres Complex",
@@ -283,6 +320,8 @@ class PostgreSQLSmokeTests(unittest.TestCase):
             connection.execute(
                 """
                 TRUNCATE TABLE
+                    auth_identity,
+                    app_user,
                     analysis_result,
                     watchlist,
                     manual_listing,

@@ -31,6 +31,7 @@ ANALYSIS_RESULT_TABLE_SQL = """
         selected_transaction_max_price INTEGER,
         confidence TEXT,
         volatility_status TEXT,
+        user_id INTEGER,
         finance_profile_id INTEGER,
         required_cash INTEGER,
         shortage_cash INTEGER,
@@ -68,6 +69,7 @@ ANALYSIS_RESULT_TABLE_SQL = """
         decision TEXT,
         summary TEXT,
         created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES app_user(id) ON DELETE CASCADE,
         FOREIGN KEY (listing_id) REFERENCES manual_listing(id) ON DELETE CASCADE,
         FOREIGN KEY (complex_id) REFERENCES apartment_complex(id) ON DELETE CASCADE,
         FOREIGN KEY (finance_profile_id) REFERENCES user_finance_profile(id) ON DELETE SET NULL
@@ -158,8 +160,32 @@ SCHEMA_STATEMENTS = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS app_user (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT,
+        display_name TEXT,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS auth_identity (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        issuer TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        last_login_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES app_user(id) ON DELETE CASCADE,
+        UNIQUE (issuer, subject)
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS user_finance_profile (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
         cash_amount INTEGER NOT NULL,
         annual_income INTEGER,
         existing_debt INTEGER DEFAULT 0,
@@ -173,7 +199,8 @@ SCHEMA_STATEMENTS = [
         other_loan_balance INTEGER DEFAULT 0,
         use_manual_ltv INTEGER DEFAULT 0,
         manual_ltv_rate REAL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES app_user(id) ON DELETE CASCADE
     )
     """,
     ANALYSIS_RESULT_TABLE_SQL,
@@ -406,6 +433,15 @@ def _ensure_user_finance_profile_columns(connection: sqlite3.Connection) -> None
         connection.execute("ALTER TABLE user_finance_profile ADD COLUMN use_manual_ltv INTEGER DEFAULT 0")
     if "manual_ltv_rate" not in existing_columns:
         connection.execute("ALTER TABLE user_finance_profile ADD COLUMN manual_ltv_rate REAL")
+    if "user_id" not in existing_columns:
+        connection.execute("ALTER TABLE user_finance_profile ADD COLUMN user_id INTEGER")
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_user_finance_profile_owned_user
+        ON user_finance_profile(user_id)
+        WHERE user_id IS NOT NULL
+        """
+    )
 
 
 def _ensure_analysis_result_columns(connection: sqlite3.Connection) -> None:
@@ -442,6 +478,14 @@ def _ensure_analysis_result_columns(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE analysis_result ADD COLUMN confidence TEXT")
     if "volatility_status" not in existing_columns:
         connection.execute("ALTER TABLE analysis_result ADD COLUMN volatility_status TEXT")
+    if "user_id" not in existing_columns:
+        connection.execute("ALTER TABLE analysis_result ADD COLUMN user_id INTEGER")
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_analysis_result_user_created
+        ON analysis_result(user_id, created_at DESC, id DESC)
+        """
+    )
     if "finance_profile_id" not in existing_columns:
         connection.execute("ALTER TABLE analysis_result ADD COLUMN finance_profile_id INTEGER")
     if "investment_type" not in existing_columns:
