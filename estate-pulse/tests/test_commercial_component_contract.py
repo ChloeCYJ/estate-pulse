@@ -26,6 +26,10 @@ class CommercialComponentContractTests(unittest.TestCase):
             result = module.render_commercial_ui(
                 page="search-home",
                 view_model={"service_title": "Estate Plus"},
+                auth_view_model={
+                    "status": "authenticated",
+                    "display_name": "회원",
+                },
                 key="commercial-search-home",
             )
 
@@ -43,6 +47,7 @@ class CommercialComponentContractTests(unittest.TestCase):
         self.assertEqual(mount_kwargs["width"], "stretch")
         self.assertEqual(mount_kwargs["data"]["page"], "search-home")
         self.assertEqual(mount_kwargs["data"]["view_model"]["service_title"], "Estate Plus")
+        self.assertEqual(mount_kwargs["data"]["auth"]["status"], "authenticated")
         self.assertEqual(mount_kwargs["data"]["meta"]["locale"], "ko-KR")
         self.assertIn("on_search_result_selected_change", mount_kwargs)
         self.assertIn("on_analysis_requested_change", mount_kwargs)
@@ -50,6 +55,9 @@ class CommercialComponentContractTests(unittest.TestCase):
         self.assertIn("on_comparison_requested_change", mount_kwargs)
         self.assertIn("on_back_to_search_requested_change", mount_kwargs)
         self.assertIn("on_retry_requested_change", mount_kwargs)
+        self.assertIn("on_login_requested_change", mount_kwargs)
+        self.assertIn("on_logout_requested_change", mount_kwargs)
+        self.assertIn("on_finance_profile_requested_change", mount_kwargs)
         self.assertIs(result, mount_mock.return_value)
 
     def test_component_build_dir_helper_points_to_package_build_output(self) -> None:

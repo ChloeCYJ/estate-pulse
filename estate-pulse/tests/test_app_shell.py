@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import ANY, Mock, patch
 import unittest
 
 import app
+from modules.services.auth_service import AuthenticatedUser
+from modules.ui.commercial_auth import CommercialAuthContext
 from modules.ui.commercial_page_state import CommercialPageState, save_commercial_page_state
 
 
@@ -62,6 +64,16 @@ class AppShellTests(unittest.TestCase):
             patch.object(app, "render_commercial_analysis_page") as analysis_page_mock,
             patch.object(app, "render_comparison_page") as comparison_page_mock,
         ):
+            auth_context = CommercialAuthContext(
+                user=AuthenticatedUser(
+                    id=7,
+                    display_name="회원",
+                    email="member@example.com",
+                    provider="Google",
+                ),
+                error_code=None,
+            )
+            auth_view_model = {"status": "authenticated"}
             app.render_commercial_root_page(
                 settings=SimpleNamespace(ui_mode="commercial"),
                 complex_repository=Mock(),
@@ -72,9 +84,16 @@ class AppShellTests(unittest.TestCase):
                 address_search_service=Mock(),
                 analysis_service=Mock(),
                 opportunity_service=Mock(),
+                auth_context=auth_context,
+                auth_view_model=auth_view_model,
             )
 
-        analysis_page_mock.assert_called_once()
+        analysis_page_mock.assert_called_once_with(
+            analysis_repository=ANY,
+            analysis_service=ANY,
+            auth_context=auth_context,
+            auth_view_model=auth_view_model,
+        )
         search_home_mock.assert_not_called()
         comparison_page_mock.assert_not_called()
 

@@ -112,6 +112,8 @@ def render_search_home_page(
     analysis_service,
     policy_event_service,
     address_search_service,
+    auth_context=None,
+    auth_view_model: dict[str, object] | None = None,
 ) -> None:
     if getattr(settings, "ui_mode", "legacy") != "commercial":
         render_dashboard_page(
@@ -150,6 +152,7 @@ def render_search_home_page(
         component_result = render_commercial_ui(
             page="search-home",
             view_model=view_model,
+            auth_view_model=auth_view_model,
             key="commercial-search-home",
         )
     except Exception as exc:  # pragma: no cover - exercised during smoke/fallback only

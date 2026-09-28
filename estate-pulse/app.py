@@ -19,6 +19,7 @@ from modules.repositories.rent_transaction_repository import RentTransactionRepo
 from modules.repositories.rule_candidate_repository import RuleCandidateRepository
 from modules.repositories.sale_transaction_repository import SaleTransactionRepository
 from modules.repositories.watchlist_repository import WatchlistRepository
+from modules.repositories.user_account_repository import UserAccountRepository
 from modules.services.address_search_service import AddressSearchService
 from modules.services.analysis_service import AnalysisService
 from modules.services.complex_registration_service import ComplexRegistrationService
@@ -31,9 +32,15 @@ from modules.services.policy_import_service import PolicyImportService
 from modules.services.region_policy_service import RegionPolicyService
 from modules.services.rule_admin_service import RuleAdminService
 from modules.services.rule_runtime_service import RuleRuntimeService
+from modules.services.auth_service import AuthService
 from modules.ui.admin_view import render_admin_page
 from modules.ui.analysis_view_refined import render_analysis_page
 from modules.ui.commercial_analysis_page import render_commercial_analysis_page
+from modules.ui.commercial_auth import (
+    CommercialAuthContext,
+    build_commercial_auth_view_model,
+    resolve_commercial_auth_context,
+)
 from modules.ui.commercial_page_state import load_commercial_page_state
 from modules.ui.comparison_view import render_comparison_page
 from modules.ui.complex_form import render_complex_page
@@ -58,6 +65,8 @@ def main() -> None:
     complex_repository = ApartmentComplexRepository(database_target)
     listing_repository = ManualListingRepository(database_target)
     finance_repository = UserFinanceProfileRepository(database_target)
+    user_account_repository = UserAccountRepository(database_target)
+    auth_service = AuthService(user_account_repository)
     analysis_repository = AnalysisRepository(database_target)
     sale_transaction_repository = SaleTransactionRepository(database_target)
     rent_transaction_repository = RentTransactionRepository(database_target)
@@ -132,6 +141,27 @@ def main() -> None:
         policy_event_service=policy_event_service,
     )
 
+    auth_context = CommercialAuthContext(user=None, error_code=None)
+    if settings.ui_mode == "commercial":
+        streamlit_user = st.user
+        user_claims = (
+            streamlit_user.to_dict()
+            if hasattr(streamlit_user, "to_dict")
+            else streamlit_user
+        )
+        auth_context = resolve_commercial_auth_context(
+            user_claims=user_claims,
+            auth_service=auth_service,
+        )
+    has_finance_profile = bool(
+        auth_context.user is not None
+        and finance_repository.get_for_user(auth_context.user.id) is not None
+    )
+    auth_view_model = build_commercial_auth_view_model(
+        context=auth_context,
+        has_finance_profile=has_finance_profile,
+    )
+
     user_pages = {
         "Dashboard": lambda: render_commercial_root_page(
             settings=settings,
@@ -143,6 +173,8 @@ def main() -> None:
             address_search_service=address_search_service,
             analysis_service=analysis_service,
             opportunity_service=opportunity_service,
+            auth_context=auth_context,
+            auth_view_model=auth_view_model,
         ),
         "단지": lambda: render_complex_page(
             complex_repository,
@@ -236,12 +268,16 @@ def render_commercial_root_page(
     address_search_service,
     analysis_service,
     opportunity_service,
+    auth_context,
+    auth_view_model,
 ) -> None:
     page_state = load_commercial_page_state(st.session_state)
     if page_state.commercial_page == "analysis_dashboard":
         render_commercial_analysis_page(
             analysis_repository=analysis_repository,
             analysis_service=analysis_service,
+            auth_context=auth_context,
+            auth_view_model=auth_view_model,
         )
         return
     if page_state.commercial_page == "legacy_comparison":
@@ -263,6 +299,8 @@ def render_commercial_root_page(
         analysis_service=analysis_service,
         policy_event_service=policy_event_service,
         address_search_service=address_search_service,
+        auth_context=auth_context,
+        auth_view_model=auth_view_model,
     )
 
 

@@ -19,6 +19,7 @@ def render_commercial_ui(
     *,
     page: str,
     view_model: dict[str, Any],
+    auth_view_model: dict[str, Any] | None = None,
     key: str,
     frontend_state: dict[str, Any] | None = None,
 ) -> Any:
@@ -26,6 +27,7 @@ def render_commercial_ui(
     data = {
         "page": page,
         "view_model": view_model,
+        "auth": auth_view_model or {"status": "anonymous"},
         "frontend_state": frontend_state or {},
         "meta": {
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -46,6 +48,9 @@ def render_commercial_ui(
         on_comparison_requested_change=lambda: None,
         on_back_to_search_requested_change=lambda: None,
         on_retry_requested_change=lambda: None,
+        on_login_requested_change=lambda: None,
+        on_logout_requested_change=lambda: None,
+        on_finance_profile_requested_change=lambda: None,
     )
 
 

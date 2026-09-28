@@ -19,7 +19,13 @@ from modules.ui.viewmodels.analysis_dashboard import (
 LOGGER = logging.getLogger(__name__)
 
 
-def render_commercial_analysis_page(*, analysis_repository, analysis_service) -> None:
+def render_commercial_analysis_page(
+    *,
+    analysis_repository,
+    analysis_service,
+    auth_context=None,
+    auth_view_model: dict[str, object] | None = None,
+) -> None:
     state = load_commercial_page_state(st.session_state)
     view_model = _build_view_model(
         state=state,
@@ -30,6 +36,7 @@ def render_commercial_analysis_page(*, analysis_repository, analysis_service) ->
         component_result = render_commercial_ui(
             page="analysis-dashboard",
             view_model=view_model,
+            auth_view_model=auth_view_model,
             key="commercial-analysis-dashboard",
             frontend_state={
                 "analysis_source": state.analysis_source,
