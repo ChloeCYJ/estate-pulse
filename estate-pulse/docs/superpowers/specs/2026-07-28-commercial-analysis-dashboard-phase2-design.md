@@ -1,5 +1,11 @@
 # Commercial AnalysisDashboard Phase 2 Design
 
+## Implementation status
+
+- The core design is implemented: canonical commercial state, live/saved AnalysisDashboard routing, snapshot-based reopen, save without recomputation, typed React events, and legacy comparison handoff.
+- Phase 2 remains active until loading/partial/error coverage and AnalysisDashboard visual evidence are complete.
+- SNS authentication and user-scoped personal finance management are a separate subsequent phase; the current finance-profile repository is not user-scoped.
+
 ## Adopted approach
 - Adopt Python adapter + dedicated Commercial AnalysisDashboard + SearchHome connection.
 - Keep `AnalysisService`, existing repository boundaries, legacy analysis pages, and the legacy comparison page intact.

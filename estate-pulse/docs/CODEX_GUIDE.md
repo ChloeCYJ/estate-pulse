@@ -24,6 +24,7 @@ Read archive docs only when the active documents do not contain the needed conte
 - Inspect existing implementation before proposing changes.
 - Classify the area as `Already Implemented`, `Partially Implemented`, or `Missing`.
 - Check `git status --short` before edits.
+- Confirm whether data described as personal is actually scoped by an authenticated user in the schema and repository queries.
 
 ### 2. Plan
 
@@ -37,12 +38,15 @@ Read archive docs only when the active documents do not contain the needed conte
 - Follow the repository boundaries documented in `docs/ARCHITECTURE.md`.
 - Keep business logic in Python and rendering logic in the appropriate UI layer.
 - Preserve existing user changes in tracked files unless the task explicitly requires updating them.
+- Keep commercial navigation in `CommercialPageState`; do not add competing page-selection session keys.
+- Keep authentication identity, authorization, and user-owned persistence in Python/repository layers.
 
 ### 4. Verify
 
 - Run the commands that prove the requested outcome.
 - Do not claim completion from reasoning alone.
 - If something could not be verified, state that directly.
+- PostgreSQL smoke tests require `TEST_DATABASE_URL` targeting a dedicated `*_test` database; report the missing environment separately from application test failures.
 
 ### 5. Report
 
@@ -68,3 +72,4 @@ When the user does not provide a custom format, report:
 - Do not read every archive document by default.
 - Do not rewrite documentation wholesale unless the task explicitly asks for it.
 - Do not report success without fresh verification evidence.
+- Do not edit archived plans/specs to describe current behavior; update living docs and the active plan instead.

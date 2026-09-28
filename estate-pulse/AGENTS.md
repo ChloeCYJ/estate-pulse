@@ -36,6 +36,16 @@
 - Korean monetary values must use the shared formatter.
 - Always implement loading, empty, partial-data, and error states when working on customer-facing UI.
 
+## Current Commercial State
+
+- Commercial mode currently supports `SearchHome` and `AnalysisDashboard`.
+- `CommercialPageState` is the single source of truth for commercial routing and active analysis state.
+- Saved analysis detail must be loaded by `analysis_id` from snapshot data.
+- Saving a completed live analysis must persist the active result without rerunning analysis.
+- Comparison continues to use the legacy Streamlit page until a dedicated commercial replacement is verified.
+- `user_finance_profile` CRUD exists, but profiles are not yet scoped to an authenticated user.
+- Future SNS authentication and personal-asset work must keep identity, ownership checks, and persistence in Python/repository layers; React emits events and renders ViewModels only.
+
 ## Change Protection
 
 - Start by checking `git status --short`.
@@ -44,6 +54,7 @@
 - Do not refactor unrelated files.
 - Only implement the requested scope.
 - Keep changes minimal and localized.
+- Treat `docs/superpowers/*/archive/` as immutable history unless the user explicitly requests a historical correction.
 
 ## Protected Paths
 
@@ -63,6 +74,8 @@ Python:
 ```powershell
 .\.venv314\Scripts\python -m unittest discover -s tests -v
 ```
+
+`tests/test_postgres_smoke.py` requires `TEST_DATABASE_URL` pointing to a dedicated database whose name ends in `_test`. If it is unavailable, run and report the remaining suite separately; do not hide the missing PostgreSQL verification.
 
 Frontend from `commercial_ui/frontend`:
 

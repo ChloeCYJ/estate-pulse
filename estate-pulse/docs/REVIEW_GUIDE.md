@@ -30,6 +30,14 @@ Use archive documents only when active documents are missing necessary context.
 - Do repositories own SQL and persistence?
 - Do analyzers own deterministic calculations?
 - Does React avoid DB access, repository access, external API calls, and calculations?
+- Are authentication identity and authorization decisions enforced in Python rather than inferred from React state?
+
+## User Data Checklist
+
+- Does every personal finance query enforce the authenticated user's ownership?
+- Can one user read, update, or delete another user's finance profile by changing an ID?
+- Are SNS credentials and tokens kept out of frontend envelopes, logs, and committed files?
+- Does analysis select the current user's finance profile rather than a global latest profile?
 
 ## Regression Checklist
 
@@ -37,6 +45,8 @@ Use archive documents only when active documents are missing necessary context.
 - Does it preserve SQLite fallback together with PostgreSQL runtime support?
 - Does it keep legacy UI available when rollback is required?
 - Does it avoid protected paths and direct DB-file edits?
+- Does commercial routing continue to use the canonical `CommercialPageState` object?
+- Does saved analysis detail come from snapshot data without recomputation?
 
 ## Documentation Checklist
 

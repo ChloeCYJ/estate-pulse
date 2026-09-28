@@ -18,6 +18,7 @@ Estate Pulse. It does not define task workflow or review process.
 ```text
 Streamlit shell
   -> UI page/controller modules
+    -> canonical commercial page/session state
     -> Services
       -> Repositories
       -> Analyzers
@@ -64,19 +65,26 @@ Streamlit shell
 - Uses Streamlit Components v2 package-based integration
 - React renders customer-facing UI only
 - Python adapters own event handling and ViewModel creation
+- `CommercialPageState` is the canonical route and active-analysis state for commercial pages
+- SearchHome and AnalysisDashboard use page-level envelopes and typed trigger events
 
 ## Data And Runtime Rules
 
 - Keep SQLite fallback and PostgreSQL runtime support compatible together.
 - `apartment_complex`, `manual_listing`, `user_finance_profile`, transaction tables, and `analysis_result` remain core persisted domains.
 - `analysis_result` is the saved analysis history source.
+- Saved AnalysisDashboard detail is loaded by `analysis_id` from persisted snapshot columns.
+- Saving an already-computed live analysis persists the active result without recomputation or fresh external lookups.
 - Additive schema compatibility should happen in code, not by manual DB file edits.
+- `user_finance_profile` is currently global data. Authentication work must add explicit user ownership before presenting it as personal data.
+- User identity and ownership filtering belong in the Streamlit/Python and repository boundaries, never in React-only state.
 
 ## Current Product Surfaces
 
-- Legacy Streamlit pages remain the main app shell.
-- Commercial SearchHome is available through the UI mode flag.
-- Analysis, comparison, saved analysis, and admin/debug surfaces still rely on the existing Python boundaries unless a later phase explicitly migrates them.
+- Streamlit remains the app shell in both UI modes.
+- Commercial SearchHome and AnalysisDashboard are available through the UI mode flag.
+- Commercial comparison hands off to the existing legacy comparison page.
+- Saved-analysis listing, personal finance management, authentication, and admin/debug surfaces remain legacy or unimplemented in commercial mode until later phases migrate them.
 
 ## Important Paths
 

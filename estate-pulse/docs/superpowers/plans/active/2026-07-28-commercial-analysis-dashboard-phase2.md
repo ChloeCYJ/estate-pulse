@@ -8,6 +8,13 @@
 
 **Tech Stack:** Python 3.14.6, Streamlit 1.59.0, unittest, React 19.1.1, TypeScript 5.8.3, Vitest 3.2.4, Playwright 1.54.2.
 
+## Current Checkpoint
+
+- Implemented: canonical commercial page state, SearchHome-to-analysis flow, saved snapshot lookup, save-without-recompute, AnalysisDashboard ViewModel/renderer, typed triggers, and legacy comparison handoff.
+- Verified: non-PostgreSQL Python suite, frontend typecheck/lint/tests/build, and commercial Streamlit startup health.
+- Remaining: direct/partial-data coverage, renderer loading/partial/error coverage, AnalysisDashboard visual capture, and PostgreSQL smoke verification when `TEST_DATABASE_URL` is available.
+- Checkpoint commit: `44c3b4d2` on `dev-ing`.
+
 ## Global Constraints
 
 - Keep `AnalysisService`, repositories, and analyzers as the source of business logic.
@@ -18,7 +25,7 @@
 - Use `area_bucket: float` as the only area contract for commercial analysis requests.
 - Legacy comparison has no preselection session contract; do not invent one.
 - Do not implement `ComparisonDashboard` or `SavedAnalysisDashboard`.
-- Do not commit or push.
+- Commit or push only when the user explicitly requests it.
 
 ---
 

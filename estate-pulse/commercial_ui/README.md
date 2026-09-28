@@ -20,6 +20,13 @@ commercial_ui/
       renderers/
 ```
 
+## Supported Pages
+
+- `search-home`: search, recent analyses, analysis request preparation
+- `analysis-dashboard`: live/saved analysis display, save, back, retry, and comparison triggers
+
+The frontend receives JSON-serializable ViewModels and emits typed events. Streamlit/Python owns routing, session state, authentication, repository access, and all calculations.
+
 ## Frontend Dependency Install
 
 Run from `commercial_ui/frontend`:
@@ -75,6 +82,8 @@ Recommended viewport sizes:
 - Mobile: `390 x 844`
 
 Capture commercial UI screenshots after either the watch build or production build is available and Streamlit is running in commercial mode.
+
+SearchHome capture is available through `visual:search-home`. AnalysisDashboard capture remains required before Phase 2 can be archived.
 
 ## Build Asset Locations
 

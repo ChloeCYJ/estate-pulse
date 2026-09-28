@@ -4,6 +4,9 @@ Estate Pulse is a Streamlit-based real-estate investment analysis app.
 It supports apartment/listing management, funding analysis, saved analysis
 history, watchlist/comparison flows, and policy/rule administration.
 
+Commercial mode currently provides React-based SearchHome and AnalysisDashboard
+screens while preserving the existing Streamlit shell and Python business logic.
+
 ## Runtime
 
 - Python `3.14.6`
@@ -71,6 +74,14 @@ $env:ESTATE_PLUS_UI_MODE='commercial'
 If `DATABASE_URL` is unset, the app uses the default local SQLite path.
 When `DATABASE_URL` is set, the app uses PostgreSQL runtime support.
 
+## Commercial Mode Status
+
+- SearchHome can search registered complexes, start analysis, and reopen recent saved analyses.
+- AnalysisDashboard renders live or saved snapshot results and supports save, back, and legacy-comparison handoff events.
+- `CommercialPageState` owns commercial navigation and the active analysis result.
+- Legacy mode remains the rollback path.
+- Personal finance profile CRUD exists in the legacy UI, but SNS authentication and per-user ownership are not connected yet.
+
 ## Test Commands
 
 Full Python suite:
@@ -78,6 +89,8 @@ Full Python suite:
 ```powershell
 .\.venv314\Scripts\python -m unittest discover -s tests -v
 ```
+
+PostgreSQL smoke tests require `TEST_DATABASE_URL` to target a dedicated `*_test` database. Report them as unverified when that environment is not configured.
 
 Frontend checks from `commercial_ui/frontend`:
 

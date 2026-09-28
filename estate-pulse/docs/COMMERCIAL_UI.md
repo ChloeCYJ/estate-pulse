@@ -36,7 +36,9 @@ React must not:
 
 - Runtime migration is complete on Python `3.14.6` and Streamlit `1.59.0`.
 - SearchHome Phase 1 is complete.
+- AnalysisDashboard Phase 2 core flow is implemented: canonical page state, live analysis handoff, saved snapshot reopen, save-without-recompute, and legacy comparison routing.
 - Streamlit Components v2 package-based integration is in place under `commercial_ui/`.
+- Legacy mode remains available as the rollback path.
 
 ## Shadow DOM Token Rule
 
@@ -46,7 +48,7 @@ module. Do not scatter duplicated per-screen CSS variables across renderers.
 
 ## Current Phase
 
-Current active phase: `AnalysisDashboard`
+Current active phase: `AnalysisDashboard` stabilization and verification.
 
 ### In scope
 
@@ -54,6 +56,7 @@ Current active phase: `AnalysisDashboard`
 - Python ViewModel adapter for analysis detail data
 - Streamlit-to-React event flow for analysis detail interactions
 - Preservation of existing calculation outputs and saved-analysis behavior
+- Loading, partial-data, error, and visual verification coverage
 
 ### Explicitly out of scope
 
@@ -63,6 +66,19 @@ Current active phase: `AnalysisDashboard`
 - direct API/DB access from React
 - replacing admin or debug pages
 - deleting legacy UI before rollback is verified
+
+### Remaining before Phase 2 archive
+
+- Complete loading, partial-data, and error-state coverage for the AnalysisDashboard ViewModel and renderer.
+- Add AnalysisDashboard desktop/mobile visual capture and evidence.
+- Run PostgreSQL smoke tests when a dedicated `TEST_DATABASE_URL` is available.
+
+## Next Planned Commercial Work
+
+- Connect SNS authentication to the Streamlit/Python session boundary.
+- Expose personal finance profile registration and editing through a commercial ViewModel and typed events.
+- Add explicit user ownership to finance-profile repository access before treating profiles as personal data.
+- Do not place authentication secrets, ownership checks, or finance persistence in React.
 
 ## Important Code Paths
 
@@ -81,7 +97,7 @@ Current active phase: `AnalysisDashboard`
 `ESTATE_PLUS_UI_MODE`
 
 - `legacy`: use the existing Streamlit home
-- `commercial`: use the commercial React SearchHome
+- `commercial`: use the commercial SearchHome and AnalysisDashboard flow
 
 Keep rollback through the legacy mode available during future phases.
 
