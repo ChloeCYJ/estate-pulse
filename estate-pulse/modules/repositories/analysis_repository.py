@@ -18,6 +18,7 @@ class AnalysisRepository:
             self.database_path,
             """
             INSERT INTO analysis_result (
+                user_id,
                 target_type,
                 listing_id,
                 complex_id,
@@ -69,9 +70,10 @@ class AnalysisRepository:
                 summary,
                 created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                payload.get("user_id"),
                 payload.get("target_type", self._default_target_type(payload)),
                 payload.get("listing_id"),
                 payload.get("complex_id"),
@@ -158,6 +160,52 @@ class AnalysisRepository:
             LIMIT 1
             """,
             (analysis_id,),
+        )
+
+    def list_recent_for_user(
+        self,
+        *,
+        user_id: int,
+        limit: int = 20,
+    ) -> list[dict]:
+        return fetch_all(
+            self.database_path,
+            """
+            SELECT
+                ar.*,
+                COALESCE(
+                    ar.sale_price_snapshot,
+                    ar.effective_price_snapshot,
+                    ml.sale_price
+                ) AS sale_price,
+                COALESCE(ar.jeonse_price_snapshot, ml.expected_jeonse_price) AS expected_jeonse_price,
+                COALESCE(ar.area_m2_snapshot, ar.area_bucket, ml.area_m2) AS area_m2,
+                COALESCE(ar.complex_name_snapshot, ac.name) AS complex_name
+            FROM analysis_result ar
+            LEFT JOIN manual_listing ml ON ml.id = ar.listing_id
+            LEFT JOIN apartment_complex ac ON ac.id = COALESCE(ar.complex_id, ml.complex_id)
+            WHERE ar.user_id = ?
+            ORDER BY ar.created_at DESC, ar.id DESC
+            LIMIT ?
+            """,
+            (user_id, limit),
+        )
+
+    def get_by_id_for_user(
+        self,
+        *,
+        analysis_id: int,
+        user_id: int,
+    ) -> dict | None:
+        return fetch_one(
+            self.database_path,
+            """
+            SELECT *
+            FROM analysis_result
+            WHERE id = ? AND user_id = ?
+            LIMIT 1
+            """,
+            (analysis_id, user_id),
         )
 
     def get_latest_by_listing(self, listing_id: int) -> dict | None:
