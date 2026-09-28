@@ -90,12 +90,22 @@ The existing finance profile remains the source for personal asset values. Add a
 
 The migration is additive. It must not delete or rewrite existing finance-profile values.
 
+### `analysis_result`
+
+Saved Commercial analyses are user-owned data and require the same isolation boundary:
+
+- add a nullable `user_id` so existing legacy rows remain intact;
+- every new Commercial save records the authenticated internal user ID;
+- Commercial recent-history and detail queries require `user_id` and never return another user's or an unowned legacy row;
+- legacy analysis queries remain explicitly separate where rollback behavior requires them.
+
 ## 5. Component Responsibilities
 
 - **Streamlit app shell:** invokes login/logout, owns the verified session, preserves safe pending navigation, and provides authenticated context to services.
 - **Auth service:** normalizes verified identity claims and provisions or resolves the internal user.
 - **User and identity repositories:** own user/identity persistence and uniqueness queries.
 - **Finance profile repository:** exposes user-scoped create, get, and update operations while preserving explicitly separate legacy operations where required.
+- **Analysis repository:** scopes Commercial save, recent-history, and detail access by internal user ID while preserving explicitly separate legacy operations where required.
 - **Commercial workflow services:** require authenticated user context for protected operations and pass the internal user ID to repositories.
 - **Python adapters:** build authentication and finance-profile ViewModels.
 - **React Commercial UI:** renders login state, access prompts, profile forms, and loading/empty/error states; it does not make authorization decisions.
@@ -156,6 +166,7 @@ Messages must not expose provider tokens, database details, or raw exception tex
 
 - The legacy UI remains available under the existing rollback path.
 - Existing unowned finance rows remain intact and are ignored by Commercial user-scoped queries.
+- Existing unowned analysis rows remain intact and are ignored by Commercial user-scoped queries.
 - Commercial mode must stop using `get_latest()` or any equivalent global-latest fallback for analysis.
 - Schema initialization and migrations must support the project's configured database implementations.
 - Disabling the Commercial feature flag must restore the prior user-visible path without requiring destructive data rollback.
