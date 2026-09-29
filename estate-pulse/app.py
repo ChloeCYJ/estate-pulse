@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import streamlit as st
+from dataclasses import replace
 from typing import Callable
 
 from config.settings import get_settings
@@ -45,7 +46,10 @@ from modules.ui.commercial_auth import (
 from modules.ui.commercial_finance_profile_page import (
     render_commercial_finance_profile_page,
 )
-from modules.ui.commercial_page_state import load_commercial_page_state
+from modules.ui.commercial_page_state import (
+    load_commercial_page_state,
+    save_commercial_page_state,
+)
 from modules.ui.comparison_view import render_comparison_page
 from modules.ui.complex_form import render_complex_page
 from modules.ui.finance_profile_form import render_finance_profile_page
@@ -279,6 +283,17 @@ def render_commercial_root_page(
     finance_profile_service=None,
 ) -> None:
     page_state = load_commercial_page_state(st.session_state)
+    if (
+        auth_context.user is not None
+        and page_state.resume_action == "finance_profile"
+    ):
+        page_state = replace(
+            page_state,
+            commercial_page="finance_profile",
+            resume_action=None,
+            page_notice=None,
+        )
+        save_commercial_page_state(st.session_state, page_state)
     if page_state.commercial_page == "finance_profile":
         render_commercial_finance_profile_page(
             auth_context=auth_context,
@@ -315,6 +330,7 @@ def render_commercial_root_page(
         address_search_service=address_search_service,
         auth_context=auth_context,
         auth_view_model=auth_view_model,
+        finance_profile_service=finance_profile_service,
     )
 
 

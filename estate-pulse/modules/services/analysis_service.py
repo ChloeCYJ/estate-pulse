@@ -503,10 +503,16 @@ class AnalysisService:
 
         return result
 
-    def save_completed_analysis_result(self, active_result: dict) -> int:
-        return self.analysis_repository.create(
-            self._build_snapshot_payload_from_completed_result(active_result)
-        )
+    def save_completed_analysis_result(
+        self,
+        active_result: dict,
+        *,
+        user_id: int | None = None,
+    ) -> int:
+        payload = self._build_snapshot_payload_from_completed_result(active_result)
+        if user_id is not None:
+            payload["user_id"] = user_id
+        return self.analysis_repository.create(payload)
 
     def list_complex_area_options(self, *, complex_id: int) -> list[dict]:
         complex_row = (

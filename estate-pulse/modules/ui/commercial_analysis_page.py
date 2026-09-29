@@ -5,6 +5,7 @@ import logging
 import streamlit as st
 
 from commercial_ui.component import render_commercial_ui
+from modules.ui.commercial_auth import login_commercial_user, logout_commercial_user
 from modules.ui.commercial_page_state import (
     CommercialPageState,
     load_commercial_page_state,
@@ -27,9 +28,11 @@ def render_commercial_analysis_page(
     auth_view_model: dict[str, object] | None = None,
 ) -> None:
     state = load_commercial_page_state(st.session_state)
+    user_id = auth_context.user.id if auth_context and auth_context.user else None
     view_model = _build_view_model(
         state=state,
         analysis_repository=analysis_repository,
+        user_id=user_id,
     )
 
     try:
@@ -64,6 +67,7 @@ def render_commercial_analysis_page(
         component_result=component_result,
         analysis_repository=analysis_repository,
         analysis_service=analysis_service,
+        auth_context=auth_context,
     ):
         st.rerun()
 
@@ -73,8 +77,27 @@ def handle_save_requested(
     session_state: dict[str, object],
     analysis_service,
     analysis_repository,
+    user_id: int | None = None,
 ) -> CommercialPageState:
     current_state = load_commercial_page_state(session_state)
+
+    if user_id is None:
+        next_state = CommercialPageState(
+            commercial_page="analysis_dashboard",
+            analysis_source=current_state.analysis_source,
+            active_analysis_id=current_state.active_analysis_id,
+            active_analysis_result=current_state.active_analysis_result,
+            pending_analysis_request=current_state.pending_analysis_request,
+            page_notice={
+                "level": "warning",
+                "code": "auth_required",
+                "message": "분석을 저장하려면 로그인해 주세요.",
+            },
+            last_trigger="save_requested",
+            resume_action=None,
+        )
+        save_commercial_page_state(session_state, next_state)
+        return next_state
 
     if current_state.analysis_source == "saved" and current_state.active_analysis_id is not None:
         next_state = CommercialPageState(
@@ -111,8 +134,13 @@ def handle_save_requested(
         save_commercial_page_state(session_state, next_state)
         return next_state
 
-    analysis_id = int(analysis_service.save_completed_analysis_result(active_result))
-    saved_row = analysis_repository.get_by_id(analysis_id)
+    analysis_id = int(
+        analysis_service.save_completed_analysis_result(active_result, user_id=user_id)
+    )
+    saved_row = analysis_repository.get_by_id_for_user(
+        analysis_id=analysis_id,
+        user_id=user_id,
+    )
     if saved_row is None:
         next_state = CommercialPageState(
             commercial_page="analysis_dashboard",
@@ -177,9 +205,21 @@ def handle_back_to_search_requested(*, session_state: dict[str, object]) -> Comm
     return next_state
 
 
-def _build_view_model(*, state: CommercialPageState, analysis_repository) -> dict[str, object]:
+def _build_view_model(
+    *,
+    state: CommercialPageState,
+    analysis_repository,
+    user_id: int | None,
+) -> dict[str, object]:
     if state.analysis_source == "saved" and state.active_analysis_id is not None:
-        saved_row = analysis_repository.get_by_id(state.active_analysis_id)
+        saved_row = (
+            analysis_repository.get_by_id_for_user(
+                analysis_id=state.active_analysis_id,
+                user_id=user_id,
+            )
+            if user_id is not None
+            else None
+        )
         if saved_row is None:
             return _build_error_view_model(
                 state=state,
@@ -225,12 +265,46 @@ def _handle_component_events(
     component_result,
     analysis_repository,
     analysis_service,
+    auth_context,
 ) -> bool:
+    if isinstance(_result_value(component_result, "login_requested"), dict):
+        login_commercial_user()
+        return False
+
+    if isinstance(_result_value(component_result, "logout_requested"), dict):
+        logout_commercial_user()
+        return False
+
+    if isinstance(_result_value(component_result, "finance_profile_requested"), dict):
+        current = load_commercial_page_state(st.session_state)
+        authenticated = bool(auth_context and auth_context.user)
+        save_commercial_page_state(
+            st.session_state,
+            CommercialPageState(
+                commercial_page="finance_profile" if authenticated else "analysis_dashboard",
+                analysis_source=current.analysis_source,
+                active_analysis_id=current.active_analysis_id,
+                active_analysis_result=current.active_analysis_result,
+                pending_analysis_request=current.pending_analysis_request,
+                page_notice=None
+                if authenticated
+                else {
+                    "level": "warning",
+                    "code": "auth_required",
+                    "message": "개인 자산을 확인하려면 로그인해 주세요.",
+                },
+                last_trigger="finance_profile_requested",
+                resume_action=None if authenticated else "finance_profile",
+            ),
+        )
+        return True
+
     if isinstance(_result_value(component_result, "save_requested"), dict):
         handle_save_requested(
             session_state=st.session_state,
             analysis_service=analysis_service,
             analysis_repository=analysis_repository,
+            user_id=auth_context.user.id if auth_context and auth_context.user else None,
         )
         return True
 

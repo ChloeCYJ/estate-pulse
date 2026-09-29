@@ -40,7 +40,7 @@ class CommercialAnalysisPageTests(unittest.TestCase):
         analysis_service = Mock()
         analysis_service.save_completed_analysis_result.return_value = 41
         analysis_repository = Mock()
-        analysis_repository.get_by_id.return_value = {
+        analysis_repository.get_by_id_for_user.return_value = {
             "id": 41,
             "complex_name_snapshot": "Test Complex",
             "area_bucket": 84.9,
@@ -57,10 +57,17 @@ class CommercialAnalysisPageTests(unittest.TestCase):
             session_state=session_state,
             analysis_service=analysis_service,
             analysis_repository=analysis_repository,
+            user_id=11,
         )
 
-        analysis_service.save_completed_analysis_result.assert_called_once_with(live_result)
-        analysis_repository.get_by_id.assert_called_once_with(41)
+        analysis_service.save_completed_analysis_result.assert_called_once_with(
+            live_result,
+            user_id=11,
+        )
+        analysis_repository.get_by_id_for_user.assert_called_once_with(
+            analysis_id=41,
+            user_id=11,
+        )
         self.assertEqual(state.analysis_source, "saved")
         self.assertEqual(state.active_analysis_id, 41)
         self.assertEqual(state.active_analysis_result, live_result)

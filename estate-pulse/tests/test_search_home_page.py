@@ -156,7 +156,8 @@ class SearchHomePageTests(unittest.TestCase):
             area_bucket=84.9,
             listing_id=None,
             analysis_service=Mock(),
-            finance_repository=Mock(),
+            finance_profile_service=Mock(get_current=Mock(return_value={"id": 31})),
+            user_id=11,
         )
 
         self.assertEqual(first_state.commercial_page, "search_home")
@@ -166,8 +167,8 @@ class SearchHomePageTests(unittest.TestCase):
     def test_handle_analysis_requested_executes_service_once_on_loading_rerun_and_opens_live_dashboard(self) -> None:
         session_state: dict[str, object] = {}
         analysis_service = Mock()
-        finance_repository = Mock()
-        finance_repository.get_latest.return_value = {"id": 31}
+        finance_profile_service = Mock()
+        finance_profile_service.get_current.return_value = {"id": 31}
         live_result = {
             "complex_id": 7,
             "complex_name": "Test Complex",
@@ -189,7 +190,8 @@ class SearchHomePageTests(unittest.TestCase):
             area_bucket=84.9,
             listing_id=None,
             analysis_service=analysis_service,
-            finance_repository=finance_repository,
+            finance_profile_service=finance_profile_service,
+            user_id=11,
         )
         state = handle_analysis_requested(
             session_state=session_state,
@@ -197,7 +199,8 @@ class SearchHomePageTests(unittest.TestCase):
             area_bucket=84.9,
             listing_id=None,
             analysis_service=analysis_service,
-            finance_repository=finance_repository,
+            finance_profile_service=finance_profile_service,
+            user_id=11,
         )
 
         analysis_service.run_complex_area_analysis.assert_called_once()
@@ -210,8 +213,8 @@ class SearchHomePageTests(unittest.TestCase):
     def test_handle_analysis_requested_failure_keeps_search_home_error_and_preserves_active_result(self) -> None:
         session_state: dict[str, object] = {}
         analysis_service = Mock()
-        finance_repository = Mock()
-        finance_repository.get_latest.return_value = {"id": 31}
+        finance_profile_service = Mock()
+        finance_profile_service.get_current.return_value = {"id": 31}
         existing_result = {"complex_name": "Existing"}
         existing_state = load_commercial_page_state(session_state)
         from modules.ui.commercial_page_state import CommercialPageState, save_commercial_page_state
@@ -231,7 +234,8 @@ class SearchHomePageTests(unittest.TestCase):
             area_bucket=84.9,
             listing_id=None,
             analysis_service=analysis_service,
-            finance_repository=finance_repository,
+            finance_profile_service=finance_profile_service,
+            user_id=11,
         )
         state = handle_analysis_requested(
             session_state=session_state,
@@ -239,7 +243,8 @@ class SearchHomePageTests(unittest.TestCase):
             area_bucket=84.9,
             listing_id=None,
             analysis_service=analysis_service,
-            finance_repository=finance_repository,
+            finance_profile_service=finance_profile_service,
+            user_id=11,
         )
 
         self.assertEqual(state.commercial_page, "search_home")

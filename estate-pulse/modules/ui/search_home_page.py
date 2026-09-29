@@ -8,6 +8,10 @@ import unicodedata
 import streamlit as st
 
 from modules.services.analysis_service import BenchmarkInputs
+from modules.ui.commercial_auth import (
+    login_commercial_user,
+    logout_commercial_user,
+)
 from modules.ui.commercial_page_state import (
     CommercialPageState,
     load_commercial_page_state,
@@ -114,6 +118,7 @@ def render_search_home_page(
     address_search_service,
     auth_context=None,
     auth_view_model: dict[str, object] | None = None,
+    finance_profile_service=None,
 ) -> None:
     if getattr(settings, "ui_mode", "legacy") != "commercial":
         render_dashboard_page(
@@ -127,8 +132,22 @@ def render_search_home_page(
 
     page_state = build_search_home_page_state(st.session_state)
     commercial_state = load_commercial_page_state(st.session_state)
+    user_id = auth_context.user.id if auth_context and auth_context.user else None
+    if resume_pending_commercial_action(
+        session_state=st.session_state,
+        user_id=user_id,
+        finance_profile_service=finance_profile_service,
+        analysis_service=analysis_service,
+    ):
+        st.rerun()
+        return
+    analysis_rows = (
+        analysis_repository.list_recent_for_user(user_id=user_id, limit=4)
+        if user_id is not None
+        else []
+    )
     recent_analyses = _recent_analysis_cards_source(
-        analysis_rows=analysis_repository.list_recent(limit=4),
+        analysis_rows=analysis_rows,
         complex_repository=complex_repository,
     )
     view_model = build_search_home_view_model(
@@ -140,7 +159,8 @@ def render_search_home_page(
         pending_analysis=_build_pending_analysis_view_model(
             commercial_state=commercial_state,
             analysis_service=analysis_service,
-            finance_repository=finance_repository,
+            finance_profile_service=finance_profile_service,
+            user_id=user_id,
         ),
     )
 
@@ -169,7 +189,8 @@ def render_search_home_page(
 
     if _handle_component_events(
         component_result=component_result,
-        finance_repository=finance_repository,
+        finance_profile_service=finance_profile_service,
+        auth_context=auth_context,
         analysis_service=analysis_service,
         complex_repository=complex_repository,
         address_search_service=address_search_service,
@@ -263,7 +284,8 @@ def handle_analysis_requested(
     area_bucket: float,
     listing_id: int | None,
     analysis_service,
-    finance_repository,
+    finance_profile_service,
+    user_id: int | None,
 ) -> CommercialPageState:
     requested_payload = {
         "request_kind": "complex_area_analysis",
@@ -274,6 +296,42 @@ def handle_analysis_requested(
     current_state = load_commercial_page_state(session_state)
     current_page_state = build_search_home_page_state(session_state)
 
+    if user_id is None:
+        next_state = CommercialPageState(
+            commercial_page="search_home",
+            analysis_source=current_state.analysis_source,
+            active_analysis_id=current_state.active_analysis_id,
+            active_analysis_result=current_state.active_analysis_result,
+            pending_analysis_request=requested_payload,
+            page_notice={
+                "level": "warning",
+                "code": "auth_required",
+                "message": "분석을 실행하려면 로그인해 주세요.",
+            },
+            last_trigger="analysis_requested",
+            resume_action="analysis",
+        )
+        save_commercial_page_state(session_state, next_state)
+        return next_state
+
+    if finance_profile_service.get_current(user_id) is None:
+        next_state = CommercialPageState(
+            commercial_page="finance_profile",
+            analysis_source=current_state.analysis_source,
+            active_analysis_id=current_state.active_analysis_id,
+            active_analysis_result=current_state.active_analysis_result,
+            pending_analysis_request=requested_payload,
+            page_notice={
+                "level": "info",
+                "code": "finance_profile_required",
+                "message": "분석 전에 개인 자산을 등록해 주세요.",
+            },
+            last_trigger="analysis_requested",
+            resume_action="analysis",
+        )
+        save_commercial_page_state(session_state, next_state)
+        return next_state
+
     if (
         current_page_state.search_status == SEARCH_STATUS_LOADING
         and current_state.pending_analysis_request == requested_payload
@@ -282,7 +340,8 @@ def handle_analysis_requested(
             session_state=session_state,
             requested_payload=requested_payload,
             analysis_service=analysis_service,
-            finance_repository=finance_repository,
+            finance_profile_service=finance_profile_service,
+            user_id=user_id,
         )
 
     next_state = CommercialPageState(
@@ -293,6 +352,7 @@ def handle_analysis_requested(
         pending_analysis_request=requested_payload,
         page_notice=None,
         last_trigger="analysis_requested",
+        resume_action=None,
     )
     save_commercial_page_state(session_state, next_state)
     _persist_search_home_page_state(
@@ -305,6 +365,93 @@ def handle_analysis_requested(
         ),
     )
     return next_state
+
+
+def resume_pending_commercial_action(
+    *,
+    session_state: dict[str, object],
+    user_id: int | None,
+    finance_profile_service,
+    analysis_service,
+) -> bool:
+    state = load_commercial_page_state(session_state)
+    if state.resume_action is None or user_id is None or finance_profile_service is None:
+        return False
+
+    if state.resume_action == "finance_profile":
+        save_commercial_page_state(
+            session_state,
+            CommercialPageState(
+                commercial_page="finance_profile",
+                analysis_source=state.analysis_source,
+                active_analysis_id=state.active_analysis_id,
+                active_analysis_result=state.active_analysis_result,
+                pending_analysis_request=state.pending_analysis_request,
+                page_notice=None,
+                last_trigger="resume_finance_profile",
+                resume_action=None,
+            ),
+        )
+        return True
+
+    pending_request = state.pending_analysis_request
+    if pending_request is None:
+        save_commercial_page_state(
+            session_state,
+            CommercialPageState(
+                commercial_page="search_home",
+                analysis_source=state.analysis_source,
+                active_analysis_id=state.active_analysis_id,
+                active_analysis_result=state.active_analysis_result,
+                pending_analysis_request=None,
+                page_notice=None,
+                last_trigger="resume_analysis_missing",
+                resume_action=None,
+            ),
+        )
+        return True
+
+    if finance_profile_service.get_current(user_id) is None:
+        save_commercial_page_state(
+            session_state,
+            CommercialPageState(
+                commercial_page="finance_profile",
+                analysis_source=state.analysis_source,
+                active_analysis_id=state.active_analysis_id,
+                active_analysis_result=state.active_analysis_result,
+                pending_analysis_request=pending_request,
+                page_notice={
+                    "level": "info",
+                    "code": "finance_profile_required",
+                    "message": "분석 전에 개인 자산을 등록해 주세요.",
+                },
+                last_trigger="resume_analysis",
+                resume_action="analysis",
+            ),
+        )
+        return True
+
+    save_commercial_page_state(
+        session_state,
+        CommercialPageState(
+            commercial_page="search_home",
+            analysis_source=state.analysis_source,
+            active_analysis_id=state.active_analysis_id,
+            active_analysis_result=state.active_analysis_result,
+            pending_analysis_request=pending_request,
+            page_notice=None,
+            last_trigger="resume_analysis",
+            resume_action=None,
+        ),
+    )
+    _execute_pending_analysis_request(
+        session_state=session_state,
+        requested_payload=pending_request,
+        analysis_service=analysis_service,
+        finance_profile_service=finance_profile_service,
+        user_id=user_id,
+    )
+    return True
 
 
 def _search_registered_complexes(*, query: str, complex_rows: list[dict]) -> list[dict]:
@@ -367,11 +514,44 @@ def _is_search_character(char: str) -> bool:
 def _handle_component_events(
     *,
     component_result,
-    finance_repository,
+    finance_profile_service,
+    auth_context,
     analysis_service,
     complex_repository,
     address_search_service,
 ) -> bool:
+    if isinstance(_result_value(component_result, "login_requested"), dict):
+        login_commercial_user()
+        return False
+
+    if isinstance(_result_value(component_result, "logout_requested"), dict):
+        logout_commercial_user()
+        return False
+
+    if isinstance(_result_value(component_result, "finance_profile_requested"), dict):
+        current = load_commercial_page_state(st.session_state)
+        is_authenticated = bool(auth_context and auth_context.user)
+        save_commercial_page_state(
+            st.session_state,
+            CommercialPageState(
+                commercial_page="finance_profile" if is_authenticated else "search_home",
+                analysis_source=current.analysis_source,
+                active_analysis_id=current.active_analysis_id,
+                active_analysis_result=current.active_analysis_result,
+                pending_analysis_request=current.pending_analysis_request,
+                page_notice=None
+                if is_authenticated
+                else {
+                    "level": "warning",
+                    "code": "auth_required",
+                    "message": "개인 자산을 확인하려면 로그인해 주세요.",
+                },
+                last_trigger="finance_profile_requested",
+                resume_action=None if is_authenticated else "finance_profile",
+            ),
+        )
+        return True
+
     search_payload = _result_value(component_result, "search_submitted")
     if isinstance(search_payload, dict):
         search_state = handle_search_submitted(
@@ -421,7 +601,8 @@ def _handle_component_events(
             area_bucket=float(analysis_payload.get("area_bucket") or 0.0),
             listing_id=_to_optional_int(analysis_payload.get("listing_id")),
             analysis_service=analysis_service,
-            finance_repository=finance_repository,
+            finance_profile_service=finance_profile_service,
+            user_id=auth_context.user.id if auth_context and auth_context.user else None,
         )
         return True
 
@@ -488,7 +669,8 @@ def _build_pending_analysis_view_model(
     *,
     commercial_state: CommercialPageState,
     analysis_service,
-    finance_repository,
+    finance_profile_service,
+    user_id: int | None,
 ) -> dict[str, object] | None:
     pending_request = commercial_state.pending_analysis_request
     if not pending_request:
@@ -499,7 +681,11 @@ def _build_pending_analysis_view_model(
     if not area_options:
         return None
 
-    latest_profile = finance_repository.get_latest()
+    current_profile = (
+        finance_profile_service.get_current(user_id)
+        if user_id is not None and finance_profile_service is not None
+        else None
+    )
     normalized_options: list[dict[str, object]] = []
     for option in area_options:
         area_bucket = float(option["area_bucket"])
@@ -529,7 +715,7 @@ def _build_pending_analysis_view_model(
     return {
         "complex_id": complex_id,
         "complex_name": str(area_options[0].get("complex_name") or "-"),
-        "finance_profile_label": _finance_profile_label(latest_profile),
+        "finance_profile_label": _finance_profile_label(current_profile),
         "auto_submit": build_search_home_page_state(st.session_state).search_status == SEARCH_STATUS_LOADING,
         "selected_area_bucket": float(pending_request["area_bucket"]),
         "area_options": normalized_options,
@@ -541,31 +727,34 @@ def _execute_pending_analysis_request(
     session_state: dict[str, object],
     requested_payload: dict[str, object],
     analysis_service,
-    finance_repository,
+    finance_profile_service,
+    user_id: int,
 ) -> CommercialPageState:
     current_state = load_commercial_page_state(session_state)
-    finance_profile = finance_repository.get_latest()
+    finance_profile = finance_profile_service.get_current(user_id)
     if not finance_profile:
         next_state = CommercialPageState(
-            commercial_page="search_home",
+            commercial_page="finance_profile",
             analysis_source=current_state.analysis_source,
             active_analysis_id=current_state.active_analysis_id,
             active_analysis_result=current_state.active_analysis_result,
             pending_analysis_request=current_state.pending_analysis_request,
-            page_notice=None,
+            page_notice={
+                "level": "info",
+                "code": "finance_profile_required",
+                "message": "분석 전에 개인 자산을 등록해 주세요.",
+            },
             last_trigger="analysis_requested",
+            resume_action="analysis",
         )
         save_commercial_page_state(session_state, next_state)
         _persist_search_home_page_state(
             session_state,
             SearchHomePageState(
                 search_query=build_search_home_page_state(session_state).search_query,
-                search_status=SEARCH_STATUS_ERROR,
+                search_status=SEARCH_STATUS_IDLE,
                 search_results=build_search_home_page_state(session_state).search_results,
-                display_error={
-                    "code": "finance_profile_required",
-                    "message": "자금 프로필을 먼저 등록해 주세요.",
-                },
+                display_error=None,
             ),
         )
         return next_state
@@ -595,6 +784,7 @@ def _execute_pending_analysis_request(
             pending_analysis_request=current_state.pending_analysis_request,
             page_notice=None,
             last_trigger="analysis_requested",
+            resume_action=None,
         )
         save_commercial_page_state(session_state, next_state)
         _persist_search_home_page_state(
@@ -619,6 +809,7 @@ def _execute_pending_analysis_request(
         pending_analysis_request=None,
         page_notice=None,
         last_trigger="analysis_requested",
+        resume_action=None,
     )
     save_commercial_page_state(session_state, next_state)
     _persist_search_home_page_state(
