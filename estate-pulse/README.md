@@ -4,8 +4,8 @@ Estate Pulse is a Streamlit-based real-estate investment analysis app.
 It supports apartment/listing management, funding analysis, saved analysis
 history, watchlist/comparison flows, and policy/rule administration.
 
-Commercial mode currently provides React-based SearchHome and AnalysisDashboard
-screens while preserving the existing Streamlit shell and Python business logic.
+Commercial mode provides React-based SearchHome, AnalysisDashboard, and personal
+asset screens while Streamlit/Python retains authentication and business logic.
 
 ## Runtime
 
@@ -57,6 +57,17 @@ cmd /c npm.cmd install
 
 ## Run The App
 
+### Commercial authentication setup
+
+Copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml` and replace
+every placeholder locally. The real secrets file is ignored and must never be
+committed. Create one Auth0 Regular Web Application, configure
+`http://localhost:8501/oauth2callback` as an allowed callback URL and the local
+app origin as an allowed logout URL, then enable Google, Kakao, and Naver social
+connections in Auth0 Universal Login. Use separate Auth0 applications and
+secrets for local and production deployments. Streamlit uses the named
+`auth0` provider through `st.login("auth0")`.
+
 Legacy mode:
 
 ```powershell
@@ -80,7 +91,8 @@ When `DATABASE_URL` is set, the app uses PostgreSQL runtime support.
 - AnalysisDashboard renders live or saved snapshot results and supports save, back, and legacy-comparison handoff events.
 - `CommercialPageState` owns commercial navigation and the active analysis result.
 - Legacy mode remains the rollback path.
-- Personal finance profile CRUD exists in the legacy UI, but SNS authentication and per-user ownership are not connected yet.
+- Google, Kakao, and Naver login is brokered by Auth0 and resolved to an internal user from OIDC issuer/subject claims.
+- Each authenticated user has one editable personal finance profile and user-scoped saved analyses.
 
 ## Test Commands
 

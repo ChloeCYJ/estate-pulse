@@ -22,6 +22,19 @@ class RuntimeMetadataTests(unittest.TestCase):
         requirements_text = (ROOT / "requirements.txt").read_text(encoding="utf-8")
         self.assertIn("streamlit==1.59.0", requirements_text)
 
+    def test_commercial_auth_configuration_is_safe_to_commit(self) -> None:
+        gitignore_text = (ROOT / ".gitignore").read_text(encoding="utf-8")
+        requirements_text = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+        example_text = (ROOT / ".streamlit" / "secrets.toml.example").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(".streamlit/secrets.toml", gitignore_text)
+        self.assertIn("Authlib>=1.3.2,<2.0", requirements_text)
+        self.assertIn("[auth.auth0]", example_text)
+        self.assertIn("REPLACE_WITH_AUTH0_CLIENT_ID", example_text)
+        self.assertNotIn("@", example_text)
+
 
 if __name__ == "__main__":
     unittest.main()

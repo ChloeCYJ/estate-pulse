@@ -24,8 +24,12 @@ commercial_ui/
 
 - `search-home`: search, recent analyses, analysis request preparation
 - `analysis-dashboard`: live/saved analysis display, save, back, retry, and comparison triggers
+- `finance-profile`: authenticated personal-asset registration and editing
 
-The frontend receives JSON-serializable ViewModels and emits typed events. Streamlit/Python owns routing, session state, authentication, repository access, and all calculations.
+The frontend receives JSON-serializable ViewModels and emits typed events. The
+shared account actions emit login, logout, and personal-asset navigation events;
+Streamlit/Auth0 owns the session and React never receives tokens, secrets, or an
+owner ID. Streamlit/Python owns routing, repository access, and all calculations.
 
 ## Frontend Dependency Install
 

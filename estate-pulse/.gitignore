@@ -4,3 +4,4 @@ __pycache__/
 commercial_ui/frontend/node_modules/
 commercial_ui/frontend/.vite/
 commercial_ui/frontend/dist/
+.streamlit/secrets.toml

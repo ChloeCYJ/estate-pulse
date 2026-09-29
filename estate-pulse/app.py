@@ -152,16 +152,22 @@ def main() -> None:
 
     auth_context = CommercialAuthContext(user=None, error_code=None)
     if settings.ui_mode == "commercial":
-        streamlit_user = st.user
-        user_claims = (
-            streamlit_user.to_dict()
-            if hasattr(streamlit_user, "to_dict")
-            else streamlit_user
-        )
-        auth_context = resolve_commercial_auth_context(
-            user_claims=user_claims,
-            auth_service=auth_service,
-        )
+        try:
+            streamlit_user = st.user
+            user_claims = (
+                streamlit_user.to_dict()
+                if hasattr(streamlit_user, "to_dict")
+                else streamlit_user
+            )
+            auth_context = resolve_commercial_auth_context(
+                user_claims=user_claims,
+                auth_service=auth_service,
+            )
+        except Exception:
+            auth_context = CommercialAuthContext(
+                user=None,
+                error_code="auth_not_configured",
+            )
     has_finance_profile = bool(
         auth_context.user is not None
         and finance_repository.get_for_user(auth_context.user.id) is not None

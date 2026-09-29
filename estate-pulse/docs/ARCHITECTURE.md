@@ -17,6 +17,7 @@ Estate Pulse. It does not define task workflow or review process.
 
 ```text
 Streamlit shell
+  -> Auth0 OIDC session -> internal app_user/auth_identity
   -> UI page/controller modules
     -> canonical commercial page/session state
     -> Services
@@ -76,15 +77,16 @@ Streamlit shell
 - Saved AnalysisDashboard detail is loaded by `analysis_id` from persisted snapshot columns.
 - Saving an already-computed live analysis persists the active result without recomputation or fresh external lookups.
 - Additive schema compatibility should happen in code, not by manual DB file edits.
-- `user_finance_profile` is currently global data. Authentication work must add explicit user ownership before presenting it as personal data.
-- User identity and ownership filtering belong in the Streamlit/Python and repository boundaries, never in React-only state.
+- `app_user` and `auth_identity` map the stable OIDC `(issuer, subject)` pair; email is display data and never an account-link key.
+- Commercial `user_finance_profile` and `analysis_result` access is scoped by internal `user_id`; legacy unowned rows remain available only to legacy paths.
+- Streamlit completes Auth0 login/logout and passes only a sanitized auth ViewModel to React. Tokens and raw claims never enter component state.
 
 ## Current Product Surfaces
 
 - Streamlit remains the app shell in both UI modes.
-- Commercial SearchHome and AnalysisDashboard are available through the UI mode flag.
+- Commercial SearchHome, AnalysisDashboard, and personal finance profile are available through the UI mode flag.
 - Commercial comparison hands off to the existing legacy comparison page.
-- Saved-analysis listing, personal finance management, authentication, and admin/debug surfaces remain legacy or unimplemented in commercial mode until later phases migrate them.
+- Admin/debug surfaces remain legacy until dedicated commercial replacements are verified.
 
 ## Important Paths
 

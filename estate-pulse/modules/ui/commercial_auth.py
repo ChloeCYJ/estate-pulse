@@ -60,6 +60,11 @@ def build_commercial_auth_view_model(
     has_finance_profile: bool,
 ) -> dict[str, object]:
     if context.error_code is not None:
+        message = (
+            "로그인 설정이 필요합니다. 운영자에게 문의해 주세요."
+            if context.error_code == "auth_not_configured"
+            else "로그인 정보를 확인하지 못했습니다. 다시 로그인해 주세요."
+        )
         return {
             "status": "error",
             "display_name": None,
@@ -68,7 +73,7 @@ def build_commercial_auth_view_model(
             "finance_profile_exists": False,
             "error": {
                 "code": context.error_code,
-                "message": "로그인 정보를 확인하지 못했습니다. 다시 로그인해 주세요.",
+                "message": message,
             },
         }
     if context.user is None:
@@ -99,7 +104,10 @@ def clear_commercial_sensitive_state(
 
 
 def login_commercial_user() -> None:
-    st.login(AUTH_PROVIDER_KEY)
+    try:
+        st.login(AUTH_PROVIDER_KEY)
+    except Exception:
+        st.error("로그인 설정이 완료되지 않았습니다. 운영자에게 문의해 주세요.")
 
 
 def logout_commercial_user() -> None:

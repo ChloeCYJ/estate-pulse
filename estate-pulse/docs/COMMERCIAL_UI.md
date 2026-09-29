@@ -37,6 +37,8 @@ React must not:
 - Runtime migration is complete on Python `3.14.6` and Streamlit `1.59.0`.
 - SearchHome Phase 1 is complete.
 - AnalysisDashboard Phase 2 core flow is implemented: canonical page state, live analysis handoff, saved snapshot reopen, save-without-recompute, and legacy comparison routing.
+- Auth0-brokered Google, Kakao, and Naver login is connected at the Streamlit boundary.
+- Authenticated users can create or edit one personal finance profile; analyses and saved results are scoped to that internal user.
 - Streamlit Components v2 package-based integration is in place under `commercial_ui/`.
 - Legacy mode remains available as the rollback path.
 
@@ -48,15 +50,15 @@ module. Do not scatter duplicated per-screen CSS variables across renderers.
 
 ## Current Phase
 
-Current active phase: `AnalysisDashboard` stabilization and verification.
+Current active phase: Commercial authentication and personal-assets verification.
 
 ### In scope
 
-- AnalysisDashboard commercial renderer
-- Python ViewModel adapter for analysis detail data
-- Streamlit-to-React event flow for analysis detail interactions
-- Preservation of existing calculation outputs and saved-analysis behavior
-- Loading, partial-data, error, and visual verification coverage
+- Auth0 session resolution and sanitized account actions
+- User-owned current finance profile creation and editing
+- Login/profile completion followed by pending-analysis resume
+- User-scoped recent, detail, and saved analysis operations
+- Loading, empty, validation, storage-error, and auth-required states
 
 ### Explicitly out of scope
 
@@ -67,18 +69,17 @@ Current active phase: `AnalysisDashboard` stabilization and verification.
 - replacing admin or debug pages
 - deleting legacy UI before rollback is verified
 
-### Remaining before Phase 2 archive
+### Remaining verification
 
-- Complete loading, partial-data, and error-state coverage for the AnalysisDashboard ViewModel and renderer.
-- Add AnalysisDashboard desktop/mobile visual capture and evidence.
+- Run Google, Kakao, and Naver end-to-end login checks with configured Auth0 credentials.
 - Run PostgreSQL smoke tests when a dedicated `TEST_DATABASE_URL` is available.
 
-## Next Planned Commercial Work
+## Authentication boundary
 
-- Connect SNS authentication to the Streamlit/Python session boundary.
-- Expose personal finance profile registration and editing through a commercial ViewModel and typed events.
-- Add explicit user ownership to finance-profile repository access before treating profiles as personal data.
-- Do not place authentication secrets, ownership checks, or finance persistence in React.
+- Streamlit calls the named `auth0` provider and resolves verified `iss`/`sub` claims to an internal account.
+- Auth0 Universal Login exposes Google, Kakao, and Naver; provider OAuth exchanges do not run in React.
+- React receives display name, email, provider label, profile-existence state, and sanitized errors only.
+- Real credentials belong only in ignored `.streamlit/secrets.toml`; the committed example contains placeholders.
 
 ## Important Code Paths
 
@@ -97,7 +98,7 @@ Current active phase: `AnalysisDashboard` stabilization and verification.
 `ESTATE_PLUS_UI_MODE`
 
 - `legacy`: use the existing Streamlit home
-- `commercial`: use the commercial SearchHome and AnalysisDashboard flow
+- `commercial`: use SearchHome, AnalysisDashboard, account actions, and personal assets
 
 Keep rollback through the legacy mode available during future phases.
 
