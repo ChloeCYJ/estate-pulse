@@ -38,7 +38,9 @@ class PageNoticeDict(TypedDict):
 
 @dataclass(frozen=True)
 class CommercialPageState:
-    commercial_page: Literal["search_home", "analysis_dashboard", "legacy_comparison"] = (
+    commercial_page: Literal[
+        "search_home", "analysis_dashboard", "finance_profile", "legacy_comparison"
+    ] = (
         "search_home"
     )
     analysis_source: Literal["live", "saved"] | None = None
@@ -47,13 +49,16 @@ class CommercialPageState:
     pending_analysis_request: PendingAnalysisRequestDict | None = None
     page_notice: PageNoticeDict | None = None
     last_trigger: str | None = None
+    resume_action: Literal["analysis", "finance_profile"] | None = None
 
 
 def load_commercial_page_state(session_state: dict[str, object]) -> CommercialPageState:
     payload = cast(dict[str, object], session_state.get(COMMERCIAL_PAGE_STATE_KEY) or {})
     return CommercialPageState(
         commercial_page=cast(
-            Literal["search_home", "analysis_dashboard", "legacy_comparison"],
+            Literal[
+                "search_home", "analysis_dashboard", "finance_profile", "legacy_comparison"
+            ],
             payload.get("commercial_page") or "search_home",
         ),
         analysis_source=cast(Literal["live", "saved"] | None, payload.get("analysis_source")),
@@ -68,6 +73,10 @@ def load_commercial_page_state(session_state: dict[str, object]) -> CommercialPa
         ),
         page_notice=cast(PageNoticeDict | None, payload.get("page_notice")),
         last_trigger=_to_optional_str(payload.get("last_trigger")),
+        resume_action=cast(
+            Literal["analysis", "finance_profile"] | None,
+            payload.get("resume_action"),
+        ),
     )
 
 

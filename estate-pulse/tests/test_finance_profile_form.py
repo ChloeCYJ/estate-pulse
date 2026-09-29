@@ -1,3 +1,4 @@
+from unittest.mock import patch
 import unittest
 
 from modules.ui.finance_profile_form import (
@@ -38,6 +39,29 @@ class FinanceProfileFormTests(unittest.TestCase):
     def test_interest_rate_warning_marks_ambiguous_percent_range(self) -> None:
         self.assertIsNotNone(_interest_rate_input_warning(0.40))
         self.assertIsNone(_interest_rate_input_warning(4.0))
+
+    def test_legacy_payload_builder_delegates_to_shared_rules(self) -> None:
+        expected = {"cash_amount": 200_000_000}
+        with patch(
+            "modules.ui.finance_profile_form.build_finance_profile_payload",
+            return_value=expected,
+        ) as builder:
+            payload = _build_profile_payload(
+                cash_amount_eok=2.0,
+                annual_income_eok=1.0,
+                interest_rate=4.0,
+                credit_loan_balance_eok=0.0,
+                other_loan_balance_eok=0.0,
+                home_count=0,
+                owned_real_estate_value_eok=0.0,
+                owned_real_estate_debt_eok=0.0,
+                use_manual_ltv=False,
+                manual_ltv_rate=None,
+                selected={},
+            )
+
+        self.assertIs(payload, expected)
+        self.assertEqual(builder.call_args.kwargs["interest_rate_percent"], 4.0)
 
 
 if __name__ == "__main__":

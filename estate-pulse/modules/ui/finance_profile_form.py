@@ -3,6 +3,10 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from modules.services.finance_profile_service import (
+    FinanceProfileValidationError,
+    build_finance_profile_payload,
+)
 from modules.utils.money_utils import format_compact_won, from_eok, to_eok
 
 
@@ -248,27 +252,23 @@ def _render_profile_form(
     if not submitted:
         return None
 
-    payload = _build_profile_payload(
-        cash_amount_eok=cash_amount_eok,
-        annual_income_eok=annual_income_eok,
-        interest_rate=interest_rate,
-        credit_loan_balance_eok=credit_loan_balance_eok,
-        other_loan_balance_eok=other_loan_balance_eok,
-        home_count=int(home_count),
-        owned_real_estate_value_eok=owned_real_estate_value_eok,
-        owned_real_estate_debt_eok=owned_real_estate_debt_eok,
-        use_manual_ltv=use_manual_ltv,
-        manual_ltv_rate=float(manual_ltv_rate) if use_manual_ltv else None,
-        selected=selected,
-    )
-    if payload["cash_amount"] <= 0:
-        st.error("보유 현금은 필수입니다.")
-        return None
-    if _interest_rate_input_warning(interest_rate):
-        st.error("금리는 % 기준으로 입력해 주세요. 4%를 의미했다면 4.0으로 다시 입력해 주세요.")
-        return None
-    if payload["use_manual_ltv"] and payload["manual_ltv_rate"] is None:
-        st.error("수동 LTV를 사용하려면 0~1 범위의 값을 입력해 주세요.")
+    try:
+        payload = _build_profile_payload(
+            cash_amount_eok=cash_amount_eok,
+            annual_income_eok=annual_income_eok,
+            interest_rate=interest_rate,
+            credit_loan_balance_eok=credit_loan_balance_eok,
+            other_loan_balance_eok=other_loan_balance_eok,
+            home_count=int(home_count),
+            owned_real_estate_value_eok=owned_real_estate_value_eok,
+            owned_real_estate_debt_eok=owned_real_estate_debt_eok,
+            use_manual_ltv=use_manual_ltv,
+            manual_ltv_rate=float(manual_ltv_rate) if use_manual_ltv else None,
+            selected=selected,
+        )
+    except FinanceProfileValidationError as exc:
+        for message in exc.field_errors.values():
+            st.error(message)
         return None
     return payload
 
@@ -287,29 +287,19 @@ def _build_profile_payload(
     manual_ltv_rate: float | None,
     selected: dict,
 ) -> dict:
-    return {
-        "cash_amount": int(from_eok(cash_amount_eok)),
-        "annual_income": _to_optional_won(annual_income_eok),
-        "existing_debt": int(
-            from_eok(
-                _calculate_existing_debt_eok(
-                    owned_real_estate_debt_eok=owned_real_estate_debt_eok,
-                    credit_loan_balance_eok=credit_loan_balance_eok,
-                    other_loan_balance_eok=other_loan_balance_eok,
-                )
-            )
-        ),
-        "interest_rate": _to_optional_interest_rate_ratio(interest_rate),
-        "ltv_limit": selected.get("ltv_limit"),
-        "dsr_limit": selected.get("dsr_limit"),
-        "home_count": home_count,
-        "owned_real_estate_value": int(from_eok(owned_real_estate_value_eok)),
-        "owned_real_estate_debt": int(from_eok(owned_real_estate_debt_eok)),
-        "credit_loan_balance": int(from_eok(credit_loan_balance_eok)),
-        "other_loan_balance": int(from_eok(other_loan_balance_eok)),
-        "use_manual_ltv": use_manual_ltv,
-        "manual_ltv_rate": manual_ltv_rate,
-    }
+    return build_finance_profile_payload(
+        cash_amount_eok=cash_amount_eok,
+        annual_income_eok=annual_income_eok,
+        interest_rate_percent=interest_rate,
+        credit_loan_balance_eok=credit_loan_balance_eok,
+        other_loan_balance_eok=other_loan_balance_eok,
+        home_count=home_count,
+        owned_real_estate_value_eok=owned_real_estate_value_eok,
+        owned_real_estate_debt_eok=owned_real_estate_debt_eok,
+        use_manual_ltv=use_manual_ltv,
+        manual_ltv_rate=manual_ltv_rate,
+        existing_profile=selected,
+    )
 
 
 def _calculate_existing_debt_eok(

@@ -51,6 +51,8 @@ def render_commercial_ui(
         on_login_requested_change=lambda: None,
         on_logout_requested_change=lambda: None,
         on_finance_profile_requested_change=lambda: None,
+        on_finance_profile_saved_change=lambda: None,
+        on_finance_profile_back_requested_change=lambda: None,
     )
 
 

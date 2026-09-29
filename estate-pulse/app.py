@@ -33,6 +33,7 @@ from modules.services.region_policy_service import RegionPolicyService
 from modules.services.rule_admin_service import RuleAdminService
 from modules.services.rule_runtime_service import RuleRuntimeService
 from modules.services.auth_service import AuthService
+from modules.services.finance_profile_service import FinanceProfileService
 from modules.ui.admin_view import render_admin_page
 from modules.ui.analysis_view_refined import render_analysis_page
 from modules.ui.commercial_analysis_page import render_commercial_analysis_page
@@ -40,6 +41,9 @@ from modules.ui.commercial_auth import (
     CommercialAuthContext,
     build_commercial_auth_view_model,
     resolve_commercial_auth_context,
+)
+from modules.ui.commercial_finance_profile_page import (
+    render_commercial_finance_profile_page,
 )
 from modules.ui.commercial_page_state import load_commercial_page_state
 from modules.ui.comparison_view import render_comparison_page
@@ -67,6 +71,7 @@ def main() -> None:
     finance_repository = UserFinanceProfileRepository(database_target)
     user_account_repository = UserAccountRepository(database_target)
     auth_service = AuthService(user_account_repository)
+    finance_profile_service = FinanceProfileService(finance_repository)
     analysis_repository = AnalysisRepository(database_target)
     sale_transaction_repository = SaleTransactionRepository(database_target)
     rent_transaction_repository = RentTransactionRepository(database_target)
@@ -175,6 +180,7 @@ def main() -> None:
             opportunity_service=opportunity_service,
             auth_context=auth_context,
             auth_view_model=auth_view_model,
+            finance_profile_service=finance_profile_service,
         ),
         "단지": lambda: render_complex_page(
             complex_repository,
@@ -270,8 +276,16 @@ def render_commercial_root_page(
     opportunity_service,
     auth_context,
     auth_view_model,
+    finance_profile_service=None,
 ) -> None:
     page_state = load_commercial_page_state(st.session_state)
+    if page_state.commercial_page == "finance_profile":
+        render_commercial_finance_profile_page(
+            auth_context=auth_context,
+            auth_view_model=auth_view_model,
+            finance_profile_service=finance_profile_service,
+        )
+        return
     if page_state.commercial_page == "analysis_dashboard":
         render_commercial_analysis_page(
             analysis_repository=analysis_repository,

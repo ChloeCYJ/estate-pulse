@@ -20,6 +20,7 @@ class CommercialPageStateTests(unittest.TestCase):
         self.assertIsNone(state.active_analysis_result)
         self.assertIsNone(state.pending_analysis_request)
         self.assertIsNone(state.page_notice)
+        self.assertIsNone(state.resume_action)
         self.assertIsNone(state.last_trigger)
 
     def test_save_and_reload_round_trips_page_notice(self) -> None:
@@ -32,6 +33,7 @@ class CommercialPageStateTests(unittest.TestCase):
             pending_analysis_request=None,
             page_notice={"level": "info", "code": "saved", "message": "ok"},
             last_trigger="recent_analysis_selected",
+            resume_action="analysis",
         )
 
         save_commercial_page_state(session_state, original)
@@ -44,6 +46,22 @@ class CommercialPageStateTests(unittest.TestCase):
         self.assertEqual(restored.active_analysis_id, 41)
         self.assertEqual(restored.page_notice["code"], "saved")
         self.assertEqual(restored.last_trigger, "recent_analysis_selected")
+        self.assertEqual(restored.resume_action, "analysis")
+
+    def test_finance_profile_route_round_trips(self) -> None:
+        session_state: dict[str, object] = {}
+        save_commercial_page_state(
+            session_state,
+            CommercialPageState(
+                commercial_page="finance_profile",
+                resume_action="finance_profile",
+            ),
+        )
+
+        restored = load_commercial_page_state(session_state)
+
+        self.assertEqual(restored.commercial_page, "finance_profile")
+        self.assertEqual(restored.resume_action, "finance_profile")
 
 
 if __name__ == "__main__":
