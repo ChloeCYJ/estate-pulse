@@ -3,6 +3,7 @@ import type { FrontendRenderer } from "@streamlit/component-v2-lib";
 
 import { AnalysisDashboardErrorBoundary, AnalysisDashboardRenderer } from "./renderers/AnalysisDashboardRenderer";
 import { SearchHomeRenderer } from "./renderers/SearchHomeRenderer";
+import { FinanceProfileRenderer } from "./renderers/FinanceProfileRenderer";
 import type { CommercialUIEnvelope, CommercialUIState } from "./contracts";
 import "./design-system/global.css";
 
@@ -18,6 +19,10 @@ const renderer: FrontendRenderer<CommercialUIState, CommercialUIEnvelope> = (com
     root.render(
       <SearchHomeRenderer
         viewModel={envelope.view_model}
+        auth={envelope.auth}
+        onLoginRequested={() => component.setTriggerValue("login_requested", {})}
+        onLogoutRequested={() => component.setTriggerValue("logout_requested", {})}
+        onFinanceProfileRequested={() => component.setTriggerValue("finance_profile_requested", {})}
         onSearchSubmitted={(query) => {
           const trimmed = query.trim();
           if (!trimmed) {
@@ -56,6 +61,10 @@ const renderer: FrontendRenderer<CommercialUIState, CommercialUIEnvelope> = (com
       >
         <AnalysisDashboardRenderer
           viewModel={envelope.view_model}
+          auth={envelope.auth}
+          onLoginRequested={() => component.setTriggerValue("login_requested", {})}
+          onLogoutRequested={() => component.setTriggerValue("logout_requested", {})}
+          onFinanceProfileRequested={() => component.setTriggerValue("finance_profile_requested", {})}
           onSaveRequested={() => {
             component.setTriggerValue("save_requested", {});
           }}
@@ -70,6 +79,19 @@ const renderer: FrontendRenderer<CommercialUIState, CommercialUIEnvelope> = (com
           }}
         />
       </AnalysisDashboardErrorBoundary>
+    );
+  }
+
+  if (envelope.page === "finance-profile") {
+    root.render(
+      <FinanceProfileRenderer
+        viewModel={envelope.view_model}
+        auth={envelope.auth}
+        onSave={(payload) => component.setTriggerValue("finance_profile_saved", payload)}
+        onBack={() => component.setTriggerValue("finance_profile_back_requested", {})}
+        onLoginRequested={() => component.setTriggerValue("login_requested", {})}
+        onLogoutRequested={() => component.setTriggerValue("logout_requested", {})}
+      />
     );
   }
 

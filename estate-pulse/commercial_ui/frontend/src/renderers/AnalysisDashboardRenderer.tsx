@@ -1,6 +1,8 @@
 import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from "react";
 
-import type { AnalysisDashboardViewModel, AnalysisSection } from "../contracts";
+import type { AnalysisDashboardViewModel, AnalysisSection, CommercialAuthViewModel } from "../contracts";
+import { anonymousAuthViewModel } from "../contracts";
+import { AccountActions } from "../components/AccountActions";
 import { AppShellFrame } from "../components/AppShellFrame";
 import { StatePanel } from "../components/StatePanel";
 import { AnalysisSectionNav } from "../components/analysis/AnalysisSectionNav";
@@ -13,6 +15,10 @@ type AnalysisDashboardRendererProps = {
   onComparisonRequested: () => void;
   onBackToSearchRequested: () => void;
   onRetryRequested: () => void;
+  auth?: CommercialAuthViewModel;
+  onLoginRequested?: () => void;
+  onLogoutRequested?: () => void;
+  onFinanceProfileRequested?: () => void;
 };
 
 type AnalysisDashboardErrorBoundaryProps = {
@@ -30,7 +36,11 @@ export function AnalysisDashboardRenderer({
   onSaveRequested,
   onComparisonRequested,
   onBackToSearchRequested,
-  onRetryRequested
+  onRetryRequested,
+  auth = anonymousAuthViewModel,
+  onLoginRequested = () => undefined,
+  onLogoutRequested = () => undefined,
+  onFinanceProfileRequested = () => undefined
 }: AnalysisDashboardRendererProps) {
   const [activeSection, setActiveSection] = useState<AnalysisSection>(viewModel.active_section);
 
@@ -47,6 +57,12 @@ export function AnalysisDashboardRenderer({
             <button type="button" className="ep-section-link" onClick={onBackToSearchRequested}>
               단지 검색으로 돌아가기
             </button>
+            <AccountActions
+              auth={auth}
+              onLoginRequested={onLoginRequested}
+              onLogoutRequested={onLogoutRequested}
+              onFinanceProfileRequested={onFinanceProfileRequested}
+            />
           </div>
         </header>
 

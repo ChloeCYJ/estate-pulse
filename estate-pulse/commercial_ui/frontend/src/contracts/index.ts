@@ -20,11 +20,19 @@ export type {
   DashboardPageStatus,
   PageNotice
 } from "./analysisDashboard";
+export type { CommercialAuthStatus, CommercialAuthViewModel } from "./auth";
+export { anonymousAuthViewModel } from "./auth";
+export type {
+  FinanceProfileEnvelope,
+  FinanceProfileForm,
+  FinanceProfileViewModel
+} from "./financeProfile";
 
 import type { AnalysisDashboardEnvelope } from "./analysisDashboard";
+import type { FinanceProfileEnvelope, FinanceProfileForm } from "./financeProfile";
 import type { SearchHomeEnvelope } from "./searchHome";
 
-export type CommercialUIEnvelope = SearchHomeEnvelope | AnalysisDashboardEnvelope;
+export type CommercialUIEnvelope = SearchHomeEnvelope | AnalysisDashboardEnvelope | FinanceProfileEnvelope;
 
 export type CommercialUIState = {
   search_submitted: { query: string } | null;
@@ -36,4 +44,9 @@ export type CommercialUIState = {
   comparison_requested: Record<string, never> | null;
   back_to_search_requested: Record<string, never> | null;
   retry_requested: Record<string, never> | null;
+  login_requested: Record<string, never> | null;
+  logout_requested: Record<string, never> | null;
+  finance_profile_requested: Record<string, never> | null;
+  finance_profile_saved: FinanceProfileForm | null;
+  finance_profile_back_requested: Record<string, never> | null;
 };

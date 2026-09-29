@@ -1,3 +1,5 @@
+import type { CommercialAuthViewModel } from "./auth";
+
 export type DashboardPageStatus = "ready" | "loading" | "error";
 export type AnalysisSource = "live" | "saved";
 export type AnalysisSection = "decision" | "financing" | "risks";
@@ -50,6 +52,7 @@ export type AnalysisDashboardViewModel = {
 export type AnalysisDashboardEnvelope = {
   page: "analysis-dashboard";
   view_model: AnalysisDashboardViewModel;
+  auth: CommercialAuthViewModel;
   frontend_state: Record<string, unknown>;
   meta: {
     generated_at: string;

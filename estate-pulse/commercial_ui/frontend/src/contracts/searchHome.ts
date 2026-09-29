@@ -1,3 +1,5 @@
+import type { CommercialAuthViewModel } from "./auth";
+
 export type SearchStatus = "idle" | "loading" | "success" | "no_results" | "error";
 
 export type NavigationItem = {
@@ -66,6 +68,7 @@ export type SearchHomeViewModel = {
 export type SearchHomeEnvelope = {
   page: "search-home";
   view_model: SearchHomeViewModel;
+  auth: CommercialAuthViewModel;
   frontend_state: Record<string, unknown>;
   meta: {
     generated_at: string;

@@ -4,6 +4,124 @@
   box-sizing: border-box;
 }
 
+.ep-account-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.ep-account-actions__identity {
+  display: grid;
+  font-weight: 700;
+  text-align: right;
+}
+
+.ep-account-actions__identity small,
+.ep-account-actions__error {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-meta);
+  font-weight: 500;
+}
+
+.ep-account-button {
+  min-height: 2.5rem;
+  padding: 0 0.875rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-weight: 700;
+}
+
+.ep-account-button--primary {
+  border-color: transparent;
+  background: var(--color-primary);
+  color: var(--color-surface);
+}
+
+.ep-finance-layout {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.ep-finance-layout h1,
+.ep-finance-form h2,
+.ep-finance-layout p {
+  margin: 0;
+}
+
+.ep-finance-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.ep-finance-summary__card,
+.ep-finance-form,
+.ep-finance-notice {
+  padding: var(--space-5);
+}
+
+.ep-finance-summary__card,
+.ep-finance-form,
+.ep-finance-field {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.ep-finance-summary__card span,
+.ep-finance-field {
+  color: var(--color-text-secondary);
+}
+
+.ep-finance-summary__card strong {
+  font-size: 1.4rem;
+}
+
+.ep-finance-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.ep-finance-field {
+  gap: var(--space-2);
+  font-weight: 700;
+}
+
+.ep-finance-field input {
+  min-height: 3rem;
+  padding: 0 0.875rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+
+.ep-finance-field input[aria-invalid="true"] { border-color: #dc2626; }
+.ep-finance-field__error { color: #b91c1c; }
+
+.ep-finance-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 700;
+}
+
+.ep-finance-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ep-finance-notice--error { background: #fff7f7; }
+.ep-finance-notice--warning { background: #fffbeb; }
+.ep-finance-notice--info { background: #eff6ff; }
+
+@media (max-width: 40rem) {
+  .ep-account-actions__identity { display: none; }
+  .ep-account-button { padding: 0 0.625rem; }
+  .ep-finance-summary,
+  .ep-finance-grid { grid-template-columns: 1fr; }
+}
+
 html,
 body {
   margin: 0;

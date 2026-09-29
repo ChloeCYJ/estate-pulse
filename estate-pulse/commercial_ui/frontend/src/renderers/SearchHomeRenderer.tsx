@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 
 import type {
+  CommercialAuthViewModel,
   NavigationItem,
   PendingAnalysis,
   PendingAreaOption,
   SearchHomeViewModel,
   SearchResultItem
 } from "../contracts";
+import { anonymousAuthViewModel } from "../contracts";
+import { AccountActions } from "../components/AccountActions";
 import { AppShellFrame } from "../components/AppShellFrame";
 import { RecentAnalysisCard } from "../components/RecentAnalysisCard";
 import { SearchInput } from "../components/SearchInput";
@@ -26,6 +29,10 @@ type SearchHomeRendererProps = {
     listing_id: number | null;
   }) => void;
   onNavigationSelected: (target: string) => void;
+  auth?: CommercialAuthViewModel;
+  onLoginRequested?: () => void;
+  onLogoutRequested?: () => void;
+  onFinanceProfileRequested?: () => void;
 };
 
 export function SearchHomeRenderer({
@@ -34,7 +41,11 @@ export function SearchHomeRenderer({
   onRecentAnalysisSelected,
   onSearchResultSelected,
   onAnalysisRequested,
-  onNavigationSelected
+  onNavigationSelected,
+  auth = anonymousAuthViewModel,
+  onLoginRequested = () => undefined,
+  onLogoutRequested = () => undefined,
+  onFinanceProfileRequested = () => undefined
 }: SearchHomeRendererProps) {
   const [query, setQuery] = useState(viewModel.search_query);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -138,6 +149,12 @@ export function SearchHomeRenderer({
                 />
               ))}
             </nav>
+            <AccountActions
+              auth={auth}
+              onLoginRequested={onLoginRequested}
+              onLogoutRequested={onLogoutRequested}
+              onFinanceProfileRequested={onFinanceProfileRequested}
+            />
           </div>
         </header>
 
