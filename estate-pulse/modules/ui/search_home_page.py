@@ -162,6 +162,7 @@ def render_search_home_page(
             finance_profile_service=finance_profile_service,
             user_id=user_id,
         ),
+        page_notice=commercial_state.page_notice,
     )
 
     _render_pending_navigation_notice()

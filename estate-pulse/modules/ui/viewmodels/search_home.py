@@ -48,6 +48,7 @@ def build_search_home_view_model(
     search_results: list[dict] | None,
     display_error: DisplayError | None,
     pending_analysis: PendingAnalysisViewModel | None = None,
+    page_notice: dict[str, str] | None = None,
 ) -> dict[str, object]:
     normalized_results = list(search_results or [])
     recent_cards = [_recent_analysis_card_payload(item) for item in recent_analyses]
@@ -77,6 +78,7 @@ def build_search_home_view_model(
         "recent_analyses": recent_cards,
         "search_results": normalized_results,
         "pending_analysis": pending_analysis,
+        "page_notice": page_notice,
     }
 
 

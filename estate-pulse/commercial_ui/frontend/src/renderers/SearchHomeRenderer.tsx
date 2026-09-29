@@ -174,6 +174,15 @@ export function SearchHomeRenderer({
             </div>
           </section>
 
+          {viewModel.page_notice ? (
+            <section className={`ep-card ep-analysis-notice ep-analysis-notice--${viewModel.page_notice.level}`}>
+              <strong>{viewModel.page_notice.message}</strong>
+              {viewModel.page_notice.code === "auth_required" ? (
+                <button type="button" className="ep-button ep-button--primary" onClick={onLoginRequested}>로그인</button>
+              ) : null}
+            </section>
+          ) : null}
+
           {shouldRenderResults ? (
             <section className="ep-results-section" aria-label="검색 결과">
               <SearchResultsPanel

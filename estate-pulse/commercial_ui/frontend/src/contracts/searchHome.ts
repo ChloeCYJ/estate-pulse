@@ -63,6 +63,7 @@ export type SearchHomeViewModel = {
   recent_analyses: RecentAnalysisCard[];
   search_results: SearchResultItem[];
   pending_analysis: PendingAnalysis | null;
+  page_notice?: { level: "info" | "warning" | "error"; code: string; message: string } | null;
 };
 
 export type SearchHomeEnvelope = {

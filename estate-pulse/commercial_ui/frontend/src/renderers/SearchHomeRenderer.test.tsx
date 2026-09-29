@@ -302,6 +302,26 @@ describe("SearchHomeRenderer", () => {
     expect(view.getByRole("button", { name: "서울숲 3차 최근 분석 다시 보기" })).toBeInTheDocument();
     expect(view.queryByRole("button", { name: "서울숲 4차 최근 분석 다시 보기" })).not.toBeInTheDocument();
   });
+
+  it("shows a login action for a protected analysis notice", () => {
+    const onLoginRequested = vi.fn();
+    const view = renderSearchHome(
+      {
+        page_notice: {
+          level: "warning",
+          code: "auth_required",
+          message: "분석을 실행하려면 로그인해 주세요."
+        }
+      },
+      { onLoginRequested }
+    );
+
+    const loginButtons = view.getAllByRole("button", { name: "로그인" });
+    fireEvent.click(loginButtons[loginButtons.length - 1]);
+
+    expect(onLoginRequested).toHaveBeenCalledOnce();
+    expect(view.getByText("분석을 실행하려면 로그인해 주세요.")).toBeInTheDocument();
+  });
 });
 
 function renderSearchHome(
@@ -316,6 +336,7 @@ function renderSearchHome(
       listing_id: number | null;
     }) => void;
     onNavigationSelected?: (target: string) => void;
+    onLoginRequested?: () => void;
   }
 ) {
   return render(
@@ -326,6 +347,7 @@ function renderSearchHome(
       onSearchResultSelected={handlers?.onSearchResultSelected ?? vi.fn()}
       onAnalysisRequested={handlers?.onAnalysisRequested ?? vi.fn()}
       onNavigationSelected={handlers?.onNavigationSelected ?? vi.fn()}
+      onLoginRequested={handlers?.onLoginRequested ?? vi.fn()}
     />
   );
 }
