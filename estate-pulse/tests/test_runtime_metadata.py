@@ -31,6 +31,7 @@ class RuntimeMetadataTests(unittest.TestCase):
 
         self.assertIn(".streamlit/secrets.toml", gitignore_text)
         self.assertIn("Authlib>=1.3.2,<2.0", requirements_text)
+        self.assertIn("httpx>=0.24.1,<1.0", requirements_text)
         self.assertIn("argon2-cffi>=25.1,<26.0", requirements_text)
         self.assertIn("[auth.auth0]", example_text)
         self.assertIn("REPLACE_WITH_AUTH0_CLIENT_ID", example_text)
