@@ -41,6 +41,7 @@ from modules.ui.analysis_view_refined import render_analysis_page
 from modules.ui.commercial_analysis_page import render_commercial_analysis_page
 from modules.ui.commercial_auth import (
     CommercialAuthContext,
+    apply_commercial_auth_session_error,
     build_commercial_auth_view_model,
     resolve_commercial_auth_context,
 )
@@ -179,6 +180,10 @@ def main() -> None:
                 user=None,
                 error_code="auth_not_configured",
             )
+        auth_context = apply_commercial_auth_session_error(
+            context=auth_context,
+            session_state=st.session_state,
+        )
     has_finance_profile = bool(
         auth_context.user is not None
         and finance_repository.get_for_user(auth_context.user.id) is not None

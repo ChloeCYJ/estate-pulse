@@ -68,6 +68,38 @@ connections in Auth0 Universal Login. Use separate Auth0 applications and
 secrets for local and production deployments. Streamlit uses the named
 `auth0` provider through `st.login("auth0")`.
 
+Add this Auth0 Post Login Action to make custom Kakao and Naver connection
+labels deterministic. Attach it to the Login flow; the claim is display-only,
+while account ownership continues to use the verified `iss` and `sub` values.
+
+```javascript
+exports.onExecutePostLogin = async (event, api) => {
+  if (event.connection?.name) {
+    api.idToken.setCustomClaim(
+      "https://estate-pulse.app/connection",
+      event.connection.name
+    );
+  }
+};
+```
+
+Before redirecting, the Commercial login adapter validates that the required
+Auth0 settings are present, that production callbacks use HTTPS, and that the
+metadata URL is an HTTPS OIDC discovery endpoint. Login failures are reported
+with sanitized error codes; secrets, provider responses, and raw claims are
+never rendered or logged.
+
+For release verification, repeat this flow once for each enabled Auth0
+connection (Google, Kakao, and Naver): open Commercial mode in a private browser
+session, choose the provider in Universal Login, complete consent, confirm the
+provider label and account name, create or update personal assets, save and
+reopen an analysis, log out, and confirm protected data is no longer visible.
+Also test provider cancellation and an unavailable provider connection. These
+failures can remain on the Auth0-hosted screen before an app session exists;
+confirm that no protected app data appears. Record only the provider,
+environment, result, and any app-issued sanitized error code; never record
+tokens or claim payloads.
+
 ### Local administrator setup
 
 The existing administrator surface uses one local account that is independent

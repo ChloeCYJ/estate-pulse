@@ -80,7 +80,7 @@ Streamlit shell
 - Additive schema compatibility should happen in code, not by manual DB file edits.
 - `app_user` and `auth_identity` map the stable OIDC `(issuer, subject)` pair; email is display data and never an account-link key.
 - Commercial `user_finance_profile` and `analysis_result` access is scoped by internal `user_id`; legacy unowned rows remain available only to legacy paths.
-- Streamlit completes Auth0 login/logout and passes only a sanitized auth ViewModel to React. Tokens and raw claims never enter component state.
+- Streamlit completes Auth0 login/logout and passes only a sanitized auth ViewModel to React. Tokens and raw claims never enter component state. A verified namespaced connection claim may supply the display-only Google, Kakao, or Naver label; ownership remains keyed exclusively by OIDC issuer and subject.
 - The local administrator principal is verified from an Argon2 hash in Streamlit secrets, remains separate from customer identities, and gates the legacy administrator renderer in Python.
 - Local administrator authentication has no automatic timeout or failed-attempt lockout by product decision; production ingress must provide HTTPS and rate limiting.
 

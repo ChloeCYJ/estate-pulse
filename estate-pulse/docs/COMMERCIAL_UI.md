@@ -95,6 +95,22 @@ Current active phase: Commercial MVP release verification and hardening.
 
 - Streamlit calls the named `auth0` provider and resolves verified `iss`/`sub` claims to an internal account.
 - Auth0 Universal Login exposes Google, Kakao, and Naver; provider OAuth exchanges do not run in React.
+- An Auth0 Post Login Action copies `event.connection.name` into the namespaced ID-token claim `https://estate-pulse.app/connection`; this claim controls only the provider label and never identity ownership.
+- The Streamlit adapter validates required Auth0 settings before redirect and keeps only sanitized authentication error codes in session state.
+- Supported authentication errors are `auth_not_configured`, `login_start_failed`, `invalid_identity`, and `account_resolution_failed`; raw exceptions, tokens, and claims are never sent to React.
+- A successful authenticated session clears any prior login-start error. Unknown Auth0 social connection prefixes render as `Social` rather than being trusted as a provider name.
+
+### Live provider release check
+
+Run the same private-session smoke flow separately for Google, Kakao, and Naver:
+
+1. Select the provider in Auth0 Universal Login and complete consent.
+2. Confirm the expected provider label and that exactly one internal identity is reused on the second login.
+3. Create or update personal assets, run an analysis, save it, and reopen it.
+4. Log out and confirm the finance profile and saved analysis are no longer accessible.
+5. Cancel one provider login and disable one test connection temporarily. Confirm no app session or protected data is created; failures that stop on the Auth0-hosted screen do not produce an app error code.
+
+Actual provider completion requires deployment-specific Auth0 credentials and provider test accounts; automated repository tests cover only the application boundary.
 - React receives display name, email, provider label, profile-existence state, and sanitized errors only.
 - Real credentials belong only in ignored `.streamlit/secrets.toml`; the committed example contains placeholders.
 - Local administrator credentials remain in the `[local_admin]` secrets section and never enter Commercial React data.

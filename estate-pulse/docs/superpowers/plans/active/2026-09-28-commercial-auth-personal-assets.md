@@ -500,6 +500,13 @@ Run: `git push origin dev-ing`
 
 Expected: the remote `dev-ing` branch advances without staging or committing `.env`, `cmd.txt`, or `data/app.db`.
 
+### 2026-09-30 authentication hardening checkpoint
+
+- The Commercial adapter now distinguishes configuration, login-start, identity, and account-resolution failures with sanitized error codes.
+- Required Auth0 settings and callback/discovery URL shapes are validated before starting the redirect.
+- Google, Kakao, and Naver are normalized from a verified Auth0 connection claim with subject-prefix fallback; unknown connections remain provider-neutral.
+- Live provider completion remains an external release check because it requires real Auth0 configuration and provider test accounts.
+
 ## Self-Review Checklist
 
 - [ ] Every protected workflow receives the internal user ID from verified Streamlit session context, never from React.
