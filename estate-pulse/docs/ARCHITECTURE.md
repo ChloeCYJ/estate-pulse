@@ -18,6 +18,7 @@ Estate Pulse. It does not define task workflow or review process.
 ```text
 Streamlit shell
   -> Auth0 OIDC session -> internal app_user/auth_identity
+  -> Local administrator secrets -> administrator-only session
   -> UI page/controller modules
     -> canonical commercial page/session state
     -> Services
@@ -80,6 +81,8 @@ Streamlit shell
 - `app_user` and `auth_identity` map the stable OIDC `(issuer, subject)` pair; email is display data and never an account-link key.
 - Commercial `user_finance_profile` and `analysis_result` access is scoped by internal `user_id`; legacy unowned rows remain available only to legacy paths.
 - Streamlit completes Auth0 login/logout and passes only a sanitized auth ViewModel to React. Tokens and raw claims never enter component state.
+- The local administrator principal is verified from an Argon2 hash in Streamlit secrets, remains separate from customer identities, and gates the legacy administrator renderer in Python.
+- Local administrator authentication has no automatic timeout or failed-attempt lockout by product decision; production ingress must provide HTTPS and rate limiting.
 
 ## Current Product Surfaces
 
@@ -87,6 +90,7 @@ Streamlit shell
 - Commercial SearchHome, AnalysisDashboard, and personal finance profile are available through the UI mode flag.
 - Commercial comparison hands off to the existing legacy comparison page.
 - Admin/debug surfaces remain legacy until dedicated commercial replacements are verified.
+- The legacy administrator surface is reachable through `?admin=1` in either UI mode only after local administrator authentication.
 
 ## Important Paths
 

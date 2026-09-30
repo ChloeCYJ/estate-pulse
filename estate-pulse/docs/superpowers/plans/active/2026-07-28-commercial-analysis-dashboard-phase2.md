@@ -12,8 +12,9 @@
 
 - Implemented: canonical commercial page state, SearchHome-to-analysis flow, saved snapshot lookup, save-without-recompute, AnalysisDashboard ViewModel/renderer, typed triggers, and legacy comparison handoff.
 - Verified: non-PostgreSQL Python suite, frontend typecheck/lint/tests/build, and commercial Streamlit startup health.
-- Remaining: direct/partial-data coverage, renderer loading/partial/error coverage, AnalysisDashboard visual capture, and PostgreSQL smoke verification when `TEST_DATABASE_URL` is available.
-- Checkpoint commit: `44c3b4d2` on `dev-ing`.
+- Remaining: additional renderer loading/partial/error coverage, AnalysisDashboard visual capture and responsive review, and PostgreSQL smoke verification when `TEST_DATABASE_URL` is available.
+- MVP decision: the verified legacy comparison handoff is accepted for the first release; a native Commercial comparison screen is post-MVP.
+- Status source: `docs/COMMERCIAL_UI.md`; this plan remains active only for the verification items above.
 
 ## Global Constraints
 

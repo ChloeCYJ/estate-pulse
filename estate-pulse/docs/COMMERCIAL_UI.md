@@ -39,6 +39,7 @@ React must not:
 - AnalysisDashboard Phase 2 core flow is implemented: canonical page state, live analysis handoff, saved snapshot reopen, save-without-recompute, and legacy comparison routing.
 - Auth0-brokered Google, Kakao, and Naver login is connected at the Streamlit boundary.
 - Authenticated users can create or edit one personal finance profile; analyses and saved results are scoped to that internal user.
+- The legacy administrator surface uses a separate Auth0-independent local account and is never authorized by a customer session.
 - Streamlit Components v2 package-based integration is in place under `commercial_ui/`.
 - Legacy mode remains available as the rollback path.
 
@@ -50,9 +51,9 @@ module. Do not scatter duplicated per-screen CSS variables across renderers.
 
 ## Current Phase
 
-Current active phase: Commercial authentication and personal-assets verification.
+Current active phase: Commercial MVP release verification and hardening.
 
-### In scope
+### Completed implementation
 
 - Auth0 session resolution and sanitized account actions
 - User-owned current finance profile creation and editing
@@ -60,7 +61,28 @@ Current active phase: Commercial authentication and personal-assets verification
 - User-scoped recent, detail, and saved analysis operations
 - Loading, empty, validation, storage-error, and auth-required states
 
-### Explicitly out of scope
+### MVP release blockers
+
+- Google, Kakao, and Naver end-to-end login checks with real Auth0 credentials
+- PostgreSQL smoke tests with a dedicated `TEST_DATABASE_URL`
+- Deployed-flow smoke for login, profile save, analysis, save/reopen, logout, and ownership isolation
+- AnalysisDashboard visual capture plus desktop/mobile responsive review
+
+### MVP boundary
+
+- Comparison continues through the verified legacy Streamlit page.
+- A native Commercial comparison screen is not required for the first MVP release.
+- Legacy mode remains the rollback path until production verification is complete.
+
+### Post-MVP
+
+- Native Commercial comparison
+- Commercial watchlist and ranking screens
+- Account linking and membership withdrawal
+- Multiple finance profiles or scenarios per user
+- Dedicated Commercial admin and debug screens
+
+### Explicitly out of scope for the current phase
 
 - new product features
 - repository or analyzer redesign
@@ -69,17 +91,13 @@ Current active phase: Commercial authentication and personal-assets verification
 - replacing admin or debug pages
 - deleting legacy UI before rollback is verified
 
-### Remaining verification
-
-- Run Google, Kakao, and Naver end-to-end login checks with configured Auth0 credentials.
-- Run PostgreSQL smoke tests when a dedicated `TEST_DATABASE_URL` is available.
-
 ## Authentication boundary
 
 - Streamlit calls the named `auth0` provider and resolves verified `iss`/`sub` claims to an internal account.
 - Auth0 Universal Login exposes Google, Kakao, and Naver; provider OAuth exchanges do not run in React.
 - React receives display name, email, provider label, profile-existence state, and sanitized errors only.
 - Real credentials belong only in ignored `.streamlit/secrets.toml`; the committed example contains placeholders.
+- Local administrator credentials remain in the `[local_admin]` secrets section and never enter Commercial React data.
 
 ## Important Code Paths
 

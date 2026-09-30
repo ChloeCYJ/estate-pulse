@@ -68,6 +68,23 @@ connections in Auth0 Universal Login. Use separate Auth0 applications and
 secrets for local and production deployments. Streamlit uses the named
 `auth0` provider through `st.login("auth0")`.
 
+### Local administrator setup
+
+The existing administrator surface uses one local account that is independent
+of Auth0 and customer identities. Generate an Argon2 password hash without
+putting the password on the command line:
+
+```powershell
+.\.venv314\Scripts\python scripts\hash_local_admin_password.py
+```
+
+Copy the hash and administrator username into the `[local_admin]` section of the
+ignored `.streamlit/secrets.toml`, set `enabled = true`, restart Streamlit, and
+open `?admin=1`. The account has no automatic timeout or failed-attempt lockout;
+production deployments must use HTTPS, a strong unique password, and ingress
+rate limiting. Administrator database operations still require the configured
+application database.
+
 Legacy mode:
 
 ```powershell
@@ -93,6 +110,20 @@ When `DATABASE_URL` is set, the app uses PostgreSQL runtime support.
 - Legacy mode remains the rollback path.
 - Google, Kakao, and Naver login is brokered by Auth0 and resolved to an internal user from OIDC issuer/subject claims.
 - Each authenticated user has one editable personal finance profile and user-scoped saved analyses.
+- The legacy administrator surface is protected by a separate local account and is available from `?admin=1` in either UI mode.
+
+### MVP release status
+
+Core Commercial MVP implementation is complete. Release verification still requires:
+
+- end-to-end login checks for Google, Kakao, and Naver with real Auth0 credentials
+- PostgreSQL smoke tests against a dedicated `*_test` database
+- deployed login, profile, analysis, save/reopen, logout, and ownership-isolation smoke checks
+- AnalysisDashboard visual and responsive QA
+
+The MVP keeps comparison on the verified legacy Streamlit page. A native
+Commercial comparison screen, Commercial watchlist/ranking, account linking,
+membership withdrawal, and multiple finance scenarios are post-MVP work.
 
 ## Test Commands
 

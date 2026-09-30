@@ -10,6 +10,16 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-28-commercial-auth-personal-assets-design.md`
 
+## Current Checkpoint
+
+- Implemented: Auth0/Streamlit authentication boundary, internal identity persistence, user-owned finance profile, user-scoped saved analyses, protected-action resume, React account/profile UI, safe configuration guidance, and login-required SearchHome actions.
+- Verified: non-PostgreSQL Python suite, frontend tests/typecheck/lint/build, and Commercial Streamlit startup health.
+- Remaining: live Google/Kakao/Naver login checks, PostgreSQL smoke tests with `TEST_DATABASE_URL`, deployed-flow smoke, and AnalysisDashboard visual/responsive QA.
+
+The detailed checklists below preserve the original execution sequence. Use this
+checkpoint and `docs/COMMERCIAL_UI.md` as the current status source instead of
+interpreting unchecked historical steps as unimplemented product work.
+
 ## Global Constraints
 
 - Keep Streamlit as the owner of authentication, routing, and session state.

@@ -10,6 +10,13 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-29-local-admin-auth-design.md`
 
+## Current Checkpoint
+
+- Implemented: local Argon2 credential verification, Streamlit administrator session/login gate, Commercial and Legacy route protection, password-hash generator, safe configuration example, and operating documentation.
+- Product decisions: one administrator, password only, no failed-attempt lockout, and no automatic session expiry.
+- Verified: 20 focused Python tests, 326 non-PostgreSQL Python tests, frontend typecheck/lint/25 tests/build, and Legacy/Commercial Streamlit health.
+- Pending external verification: real local administrator credential login and PostgreSQL smoke tests with `TEST_DATABASE_URL`.
+
 ## Global Constraints
 
 - Do not add local customer accounts, administrator CRUD, multiple administrator accounts, password reset, OTP, login-attempt lockout, automatic session expiry, or granular roles.

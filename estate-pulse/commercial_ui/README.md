@@ -89,6 +89,14 @@ Capture commercial UI screenshots after either the watch build or production bui
 
 SearchHome capture is available through `visual:search-home`. AnalysisDashboard capture remains required before Phase 2 can be archived.
 
+The first Commercial MVP accepts the existing legacy comparison handoff. A
+native Commercial comparison renderer and Commercial watchlist/ranking screens
+are post-MVP package work.
+
+The administrator portal remains outside this React package. Streamlit protects
+the legacy administrator renderer with a separate local account at `?admin=1`;
+administrator credentials and session data never enter component envelopes.
+
 ## Build Asset Locations
 
 - Dev/watch output: `commercial_ui/frontend/build`

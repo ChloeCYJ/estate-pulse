@@ -38,13 +38,16 @@
 
 ## Current Commercial State
 
-- Commercial mode currently supports `SearchHome` and `AnalysisDashboard`.
+- Commercial mode supports `SearchHome`, `AnalysisDashboard`, account actions, and one editable personal finance profile per authenticated user.
+- Google, Kakao, and Naver login is brokered through Auth0 at the Streamlit boundary.
 - `CommercialPageState` is the single source of truth for commercial routing and active analysis state.
 - Saved analysis detail must be loaded by `analysis_id` from snapshot data.
 - Saving a completed live analysis must persist the active result without rerunning analysis.
 - Comparison continues to use the legacy Streamlit page until a dedicated commercial replacement is verified.
-- `user_finance_profile` CRUD exists, but profiles are not yet scoped to an authenticated user.
-- Future SNS authentication and personal-asset work must keep identity, ownership checks, and persistence in Python/repository layers; React emits events and renders ViewModels only.
+- Commercial finance profiles and saved analyses are scoped to the internal authenticated `user_id`; legacy unowned rows remain isolated from commercial access.
+- Identity, ownership checks, and persistence stay in Python/repository layers; React emits events and renders sanitized ViewModels only.
+- The legacy administrator surface is protected by one Auth0-independent local administrator account configured through Streamlit secrets.
+- Remaining MVP work is release verification: live provider login, PostgreSQL smoke coverage, deployed-flow smoke, and AnalysisDashboard visual/responsive QA.
 
 ## Change Protection
 
