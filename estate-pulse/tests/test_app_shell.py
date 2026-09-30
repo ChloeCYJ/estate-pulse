@@ -22,6 +22,7 @@ class AppShellTests(unittest.TestCase):
                 settings=SimpleNamespace(app_name="Estate Pulse", ui_mode="commercial"),
                 user_pages={"Dashboard": dashboard_renderer},
                 admin_pages={"관리자": Mock()},
+                local_admin_auth_service=Mock(),
             )
 
         dashboard_renderer.assert_called_once_with()
@@ -40,10 +41,57 @@ class AppShellTests(unittest.TestCase):
                 settings=SimpleNamespace(app_name="Estate Pulse", ui_mode="legacy"),
                 user_pages={"Dashboard": dashboard_renderer},
                 admin_pages={"관리자": Mock()},
+                local_admin_auth_service=Mock(),
             )
 
         streamlit_mock.sidebar.title.assert_called_once_with("Estate Pulse")
         dashboard_renderer.assert_called_once_with()
+
+    def test_commercial_admin_query_uses_local_gate(self) -> None:
+        dashboard_renderer = Mock()
+        admin_renderer = Mock()
+        auth_service = Mock()
+
+        with patch.object(app, "render_local_admin_gate") as gate_mock:
+            app.render_app_shell(
+                settings=SimpleNamespace(app_name="Estate Pulse", ui_mode="commercial"),
+                user_pages={"Dashboard": dashboard_renderer},
+                admin_pages={"관리자": admin_renderer},
+                local_admin_auth_service=auth_service,
+                admin_portal_requested=True,
+            )
+
+        gate_mock.assert_called_once_with(
+            auth_service=auth_service,
+            admin_renderer=admin_renderer,
+        )
+        dashboard_renderer.assert_not_called()
+        admin_renderer.assert_not_called()
+
+    def test_legacy_admin_menu_uses_local_gate(self) -> None:
+        admin_renderer = Mock()
+        auth_service = Mock()
+        streamlit_mock = Mock()
+        streamlit_mock.sidebar = Mock()
+        streamlit_mock.sidebar.radio.side_effect = ["관리자", "관리자"]
+        streamlit_mock.session_state = {}
+
+        with (
+            patch.object(app, "st", streamlit_mock),
+            patch.object(app, "render_local_admin_gate") as gate_mock,
+        ):
+            app.render_app_shell(
+                settings=SimpleNamespace(app_name="Estate Pulse", ui_mode="legacy"),
+                user_pages={"Dashboard": Mock()},
+                admin_pages={"관리자": admin_renderer},
+                local_admin_auth_service=auth_service,
+            )
+
+        gate_mock.assert_called_once_with(
+            auth_service=auth_service,
+            admin_renderer=admin_renderer,
+        )
+        admin_renderer.assert_not_called()
 
 
     def test_render_commercial_root_page_routes_analysis_dashboard_state(self) -> None:

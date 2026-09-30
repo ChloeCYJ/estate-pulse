@@ -35,6 +35,7 @@ from modules.services.rule_admin_service import RuleAdminService
 from modules.services.rule_runtime_service import RuleRuntimeService
 from modules.services.auth_service import AuthService
 from modules.services.finance_profile_service import FinanceProfileService
+from modules.services.local_admin_auth_service import LocalAdminAuthService
 from modules.ui.admin_view import render_admin_page
 from modules.ui.analysis_view_refined import render_analysis_page
 from modules.ui.commercial_analysis_page import render_commercial_analysis_page
@@ -49,6 +50,11 @@ from modules.ui.commercial_finance_profile_page import (
 from modules.ui.commercial_page_state import (
     load_commercial_page_state,
     save_commercial_page_state,
+)
+from modules.ui.local_admin_auth import (
+    is_admin_portal_requested,
+    load_local_admin_config,
+    render_local_admin_gate,
 )
 from modules.ui.comparison_view import render_comparison_page
 from modules.ui.complex_form import render_complex_page
@@ -69,6 +75,11 @@ def main() -> None:
         layout="wide",
         initial_sidebar_state="collapsed" if settings.ui_mode == "commercial" else "auto",
     )
+
+    local_admin_auth_service = LocalAdminAuthService(
+        load_local_admin_config(st.secrets)
+    )
+    admin_portal_requested = is_admin_portal_requested(st.query_params)
 
     complex_repository = ApartmentComplexRepository(database_target)
     listing_repository = ManualListingRepository(database_target)
@@ -242,6 +253,8 @@ def main() -> None:
         settings=settings,
         user_pages=user_pages,
         admin_pages=admin_pages,
+        local_admin_auth_service=local_admin_auth_service,
+        admin_portal_requested=admin_portal_requested,
     )
 
 
@@ -250,7 +263,16 @@ def render_app_shell(
     settings,
     user_pages: dict[str, Callable[[], None]],
     admin_pages: dict[str, Callable[[], None]],
+    local_admin_auth_service,
+    admin_portal_requested: bool = False,
 ) -> None:
+    if admin_portal_requested:
+        render_local_admin_gate(
+            auth_service=local_admin_auth_service,
+            admin_renderer=next(iter(admin_pages.values())),
+        )
+        return
+
     if getattr(settings, "ui_mode", "legacy") == "commercial":
         user_pages["Dashboard"]()
         return
@@ -260,6 +282,12 @@ def render_app_shell(
     if menu_group == "관리자":
         selected_page = st.sidebar.radio("관리자 메뉴", list(admin_pages.keys()))
         selected_renderer = admin_pages[selected_page]
+        st.sidebar.caption("Phase 2 comparison platform")
+        render_local_admin_gate(
+            auth_service=local_admin_auth_service,
+            admin_renderer=selected_renderer,
+        )
+        return
     else:
         if SIDEBAR_USER_PAGE_KEY not in st.session_state:
             st.session_state[SIDEBAR_USER_PAGE_KEY] = "Dashboard"
