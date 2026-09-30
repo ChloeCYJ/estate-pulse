@@ -82,6 +82,28 @@ class UserAccountRepositoryTests(unittest.TestCase):
         self.assertEqual(self._count_rows("app_user"), 2)
         self.assertEqual(self._count_rows("auth_identity"), 2)
 
+    def test_touch_identity_updates_provider_and_last_login(self) -> None:
+        repository = self._repository()
+        account = repository.create_user_with_identity(
+            issuer="https://tenant.example.com/",
+            subject="oauth2|kakao-user",
+            provider="Social",
+            email=None,
+            display_name="카카오 회원",
+        )
+
+        repository.touch_identity(
+            identity_id=int(account["identity_id"]),
+            provider="Kakao",
+        )
+        updated = repository.get_by_identity(
+            issuer="https://tenant.example.com/",
+            subject="oauth2|kakao-user",
+        )
+
+        self.assertEqual(updated["provider"], "Kakao")
+        self.assertIsNotNone(updated["last_login_at"])
+
     def test_unique_identity_race_rolls_back_orphan_user_and_returns_existing(self) -> None:
         repository = self._repository()
         existing = repository.create_user_with_identity(

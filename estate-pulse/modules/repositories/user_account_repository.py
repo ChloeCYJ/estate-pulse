@@ -85,7 +85,18 @@ class UserAccountRepository:
             raise RuntimeError("Created authentication identity could not be reloaded.")
         return created
 
-    def touch_identity(self, *, identity_id: int) -> None:
+    def touch_identity(self, *, identity_id: int, provider: str | None = None) -> None:
+        if provider is not None:
+            execute(
+                self.database_path,
+                """
+                UPDATE auth_identity
+                SET provider = ?, last_login_at = ?
+                WHERE id = ?
+                """,
+                (provider, utc_now_iso(), identity_id),
+            )
+            return
         execute(
             self.database_path,
             "UPDATE auth_identity SET last_login_at = ? WHERE id = ?",

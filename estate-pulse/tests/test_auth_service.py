@@ -67,6 +67,35 @@ class AuthServiceTests(unittest.TestCase):
 
         self.assertNotEqual(first.id, second.id)
 
+    def test_repeated_login_promotes_social_provider_without_later_downgrade(self) -> None:
+        unresolved = VerifiedIdentity(
+            issuer="https://tenant.example/",
+            subject="oauth2|kakao-user",
+            provider="Social",
+            email=None,
+            display_name="카카오 회원",
+        )
+        resolved = VerifiedIdentity(
+            issuer=unresolved.issuer,
+            subject=unresolved.subject,
+            provider="Kakao",
+            email=None,
+            display_name="카카오 회원",
+        )
+
+        first = self.service.resolve(unresolved)
+        promoted = self.service.resolve(resolved)
+        preserved = self.service.resolve(unresolved)
+        row = self.repository.get_by_identity(
+            issuer=unresolved.issuer,
+            subject=unresolved.subject,
+        )
+
+        self.assertEqual(first.provider, "Social")
+        self.assertEqual(promoted.provider, "Kakao")
+        self.assertEqual(preserved.provider, "Kakao")
+        self.assertEqual(row["provider"], "Kakao")
+
     def test_missing_stable_claim_rejects_before_repository_mutation(self) -> None:
         repository = Mock()
         service = AuthService(repository)
